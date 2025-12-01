@@ -30,8 +30,7 @@ pisa_pipeline/
 │── utils/
 │   ├── io.py
 │   └── file_utils.py
-│── interface/
-│   └── main.py              # GUI Application
+│── main.py                  # GUI Application
 │── script.py                # Command Line Script
 │── requirements.txt
 │── README.md
@@ -63,7 +62,7 @@ pip install -r requirements.txt
 Launch the graphical interface:
 
 ```bash
-python interface/main.py
+python main.py
 ```
 
 The interface allows you to:
