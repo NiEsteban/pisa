@@ -8,7 +8,7 @@ import pandas as pd
 
 # Global UI constants
 MAIN_WINDOW_TITLE = "PISA Stepwise Pipeline"
-MAIN_WINDOW_GEOMETRY = "1200x720"
+MAIN_WINDOW_GEOMETRY = "1920x1080"
 TAB_PROCESS_DATA_TITLE = "Process Data"
 TAB_PROCESS_RESULTS_TITLE = "Process Results"
 LOG_FRAME_HEIGHT = 10

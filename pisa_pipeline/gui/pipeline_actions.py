@@ -7,6 +7,7 @@ from pisa_pipeline.data_processing.sav_loader import SAVloader
 from pisa_pipeline.data_processing.cleaner import CSVCleaner
 from pisa_pipeline.data_processing.transformer import Transformer
 from pisa_pipeline.utils.io import save_dataframe_to_csv
+from pisa_pipeline.utils.algo_utils import detect_columns
 
 if TYPE_CHECKING:
     from pisa_pipeline.gui.main_window import StepwisePipelineGUI
@@ -34,8 +35,7 @@ class PipelineActions:
 
     def auto_detect_and_fill_ids(self, df: pd.DataFrame) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """Auto-detect IDs with improved score column detection."""
-        cleaner = CSVCleaner()
-        auto_score, auto_school, auto_student = cleaner.detect_columns(df)
+        auto_score, auto_school, auto_student = detect_columns(df)
 
         # Update entries if empty
         if auto_score:

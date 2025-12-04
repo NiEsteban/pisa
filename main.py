@@ -10,6 +10,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-#problems 
-# 1) drop after transform and split doesnt work
-# 2)
+    
