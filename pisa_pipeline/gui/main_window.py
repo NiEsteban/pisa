@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Main GUI window for PISA Stepwise Pipeline"""
 import sys
+import os
 import tkinter as tk
 from tkinter import ttk
 from typing import Optional, List, Dict, Set
@@ -18,49 +19,7 @@ from pisa_pipeline.utils.gui_utils import TextRedirector
 from pisa_pipeline.gui.process_results import ProcessResultsGUI
 
 
-class TabAwareRedirector:
-    """Redirects output to the appropriate log based on active tab"""
-    def __init__(self, notebook, text_log_data, text_log_results):
-        self.notebook = notebook
-        self.text_log_data = text_log_data
-        self.text_log_results = text_log_results
 
-    def write(self, message: str) -> None:
-        if not message:
-            return
-        
-        # Determine which tab is active
-        try:
-            current_tab = self.notebook.select()
-            tab_index = self.notebook.index(current_tab)
-        except:
-            tab_index = 0  # Default to first tab if error
-        
-        # Select the appropriate text widget based on active tab
-        if tab_index == 0:  # Process Data tab
-            target_widget = self.text_log_data
-        else:  # Process Results tab or any other
-            target_widget = self.text_log_results
-
-        # Write to the selected widget
-        target_widget.config(state="normal")
-        tag = "info"
-        if "[ERROR]" in message or message.lower().startswith("error"):
-            tag = "error"
-        elif "[PIPELINE]" in message or message.lower().startswith("pipeline"):
-            tag = "pipeline"
-        
-        if not message.endswith("\n"):
-            message = message + "\n"
-        
-        try:
-            target_widget.insert("end", message, tag)
-        finally:
-            target_widget.config(state="disabled")
-            target_widget.see("end")
-
-    def flush(self) -> None:
-        pass
 
 
 class StepwisePipelineGUI:
@@ -69,7 +28,9 @@ class StepwisePipelineGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title(MAIN_WINDOW_TITLE)
-        self.root.geometry(MAIN_WINDOW_GEOMETRY)
+        # Start maximized (Windows compatible)
+        self.root.state('zoomed')
+        # self.root.geometry(MAIN_WINDOW_GEOMETRY) # Optional fallback
 
         # Create notebook for tabs
         self.notebook = ttk.Notebook(root)
@@ -129,12 +90,11 @@ class StepwisePipelineGUI:
         self._setup_bottom_frame(self.tab_process_data)
 
         # Import sub-components AFTER all widgets are created
-        from pisa_pipeline.gui.file_manager import FileManager
         from pisa_pipeline.gui.column_display import ColumnDisplay
         from pisa_pipeline.gui.pipeline_actions import PipelineActions
 
         # Initialize sub-components
-        self.file_manager = FileManager(self)
+        # self.file_manager is initialized in _setup_left_frame (TreeFileManager)
         self.column_display = ColumnDisplay(self)
         self.pipeline_actions = PipelineActions(self)
 
@@ -210,26 +170,48 @@ class StepwisePipelineGUI:
     def _setup_left_frame(self, parent: ttk.Frame) -> None:
         """Create file list panel"""
         left_frame = ttk.Frame(parent)
-        left_frame.pack(side="left", fill="y")
+        left_frame.pack(side="left", fill="both", expand=True)
 
-        ttk.Label(left_frame, text="Files").pack(anchor="w")
+        ttk.Label(left_frame, text="Files (Folder Tree)").pack(anchor="w")
 
-        self.file_listbox = tk.Listbox(
-            left_frame,
-            height=28,
-            selectmode="extended",
-            exportselection=False,
-            width=36
-        )
-        self.file_listbox.pack(side="left", fill="y", padx=(0, 4))
-
+        # Treeview with scrollbar
+        self.file_tree = ttk.Treeview(left_frame, selectmode="extended")
         file_scroll = ttk.Scrollbar(
             left_frame,
             orient="vertical",
-            command=self.file_listbox.yview
+            command=self.file_tree.yview
         )
+        self.file_tree.configure(yscrollcommand=file_scroll.set)
+        
+        self.file_tree.pack(side="left", fill="both", expand=True, padx=(0, 4))
         file_scroll.pack(side="left", fill="y")
-        self.file_listbox.config(yscrollcommand=file_scroll.set)
+
+        # Initialize TreeFileManager
+        # We need to do this here or mostly in __init__.
+        # But __init__ didn't have self.file_tree yet.
+        # Ideally, we init manager in __init__ but setup tree here.
+        # But let's check where self.file_manager was created originally. It was in __init__ in original code?
+        # No, duplicate code below showed it was just being used.
+        # Let's import here to be safe and set it up.
+        from pisa_pipeline.gui.tree_file_manager import TreeFileManager
+        self.file_manager = TreeFileManager(self)
+        self.file_manager.setup_tree(self.file_tree)
+
+        # Bind selection event to update columns
+        def on_tree_select(event):
+            selected_files = self.file_manager.get_selected_files()
+            if selected_files:
+                target_path = selected_files[0]
+                # Only try to display columns if it's a file, not a directory
+                if os.path.isfile(target_path):
+                    self.column_display.display_columns_for_file(target_path)
+                else:
+                    self.column_display.display_columns_for_file(None)
+            else:
+                self.column_display.display_columns_for_file(None)
+        
+        self.file_tree.bind("<<TreeviewSelect>>", on_tree_select)
+
 
     def _setup_center_frame(self, parent: ttk.Frame) -> None:
         """Create columns display panel"""
@@ -251,6 +233,13 @@ class StepwisePipelineGUI:
             style="Accent.TButton"
         )
         self.btn_drop_columns.pack(side="left", padx=10)
+
+        self.btn_undo_drop = ttk.Button(
+            header_frame,
+            text="Undo Last Drop",
+            command=lambda: self.pipeline_actions.action_undo_last_drop()
+        )
+        self.btn_undo_drop.pack(side="left", padx=10)
 
         # Scrollable canvas for columns
         canvas_frame = ttk.Frame(center_frame)
@@ -379,38 +368,7 @@ class StepwisePipelineGUI:
         )
         self.btn_load_label.pack(fill="x", padx=4, pady=4)
 
-    def _setup_clean_frame(self) -> None:
-        """Create Clean frame"""
-        clean_frame = ttk.LabelFrame(
-            self.actions_container,
-            text="2. Clean"
-        )
-        clean_frame.pack(fill="x", pady=(0, 8), ipadx=4, ipady=4)
 
-        ttk.Label(clean_frame, text="Missing threshold:").pack(
-            anchor="w", padx=4
-        )
-        ttk.Entry(
-            clean_frame,
-            textvariable=self.missing_thr,
-            width=10
-        ).pack(anchor="w", padx=4, pady=(0, 4))
-
-        ttk.Label(clean_frame, text="Uniform threshold:").pack(
-            anchor="w", padx=4
-        )
-        ttk.Entry(
-            clean_frame,
-            textvariable=self.uniform_thr,
-            width=10
-        ).pack(anchor="w", padx=4, pady=(0, 4))
-
-        self.btn_clean = ttk.Button(
-            clean_frame,
-            text="Clean",
-            style="Accent.TButton"
-        )
-        self.btn_clean.pack(fill="x", padx=4, pady=4)
 
     def _setup_clean_frame(self) -> None:
         """Create Clean frame"""
@@ -513,12 +471,30 @@ class StepwisePipelineGUI:
 
     def _setup_output_redirection(self) -> None:
         """Setup intelligent output redirection based on active tab"""
-        # Create the tab-aware redirector
-        redirector = TabAwareRedirector(
-            self.notebook,
-            self.text_log,
-            self.process_results_gui.text_log
-        )
+        from pisa_pipeline.gui.thread_safe_console import ThreadSafeConsole
         
-        sys.stdout = redirector
-        sys.stderr = redirector
+        console = ThreadSafeConsole()
+        
+        # Define how to find the target widget based on active tab
+        def get_active_log_widget():
+            try:
+                # Get index of currently selected tab
+                current_tab = self.notebook.select()
+                tab_index = self.notebook.index(current_tab)
+                
+                # Tab 0 is Process Data, Tab 1 is Process Results
+                if tab_index == 0:
+                    return self.text_log
+                elif tab_index == 1:
+                    return self.process_results_gui.text_log
+                else:
+                    return self.text_log # Default
+            except:
+                return self.text_log
+                
+        console.set_target_resolver(get_active_log_widget)
+        console.redirect_sys_output()
+        
+        # Start polling (if not already started by process_results, but it's safe to call twice as long as interval is okay. 
+        # Actually better to start it ONCE here at the root level)
+        console.start_polling(self.root) 

@@ -1,215 +1,206 @@
 import os
 import argparse
-from pisa_pipeline.data_processing.spss_loader import SPSSloader
-from pisa_pipeline.data_processing.transformer import Transformer
-from pisa_pipeline.data_processing.sav_loader import SAVloader
-from pisa_pipeline.data_processing.cleaner import CSVCleaner
-from pisa_pipeline.data_processing.process_results import ProcessResults
+from typing import List, Tuple
+import pandas as pd
+from pisa_pipeline.data_processing.pipeline_service import PipelineService
 from pisa_pipeline.utils.file_utils import resolve_folder_path, is_file
-from pisa_pipeline.utils.io import save_dataframe_to_csv
 
-# -------------------------------------------------------------------------
-# Global constants
-# -------------------------------------------------------------------------
-folder_extracted = "mexican"
-folder_labeled = "mexican_labeled"
-folder_cleaned = "mexican_labeled_cleaned"
-folder_leveled = "mexican_labeled_cleaned_leveled"
-type_file = [".sav", ".text", ".csv"]
-
-
-# -------------------------------------------------------------------------
-# Helpers
-# -------------------------------------------------------------------------
-
-def filebasename(filepath: str) -> str:
-    """
-    Return a shrinked base name for a file.
-    - If the filename contains at least 2 underscores, return the last two parts joined with '_'.
-    - Otherwise, return the standard base name without extension.
-    """
-    base = os.path.basename(filepath)  # strip folder path
-    name_parts = os.path.splitext(base)[0].split("_")  # remove extension, split by '_'
-
-    if len(name_parts) >= 2:
-        shrinked_name = "_".join(name_parts[-2:])
-    else:
-        shrinked_name = name_parts[0]
-
-    return shrinked_name
-
-# -------------------------------------------------------------------------
-# Main
-# -------------------------------------------------------------------------
-
-def main(save_unlabel=False, transform=False, folder="raw_data",
-         score_col=None, school_id_col=None, student_id_col=None,country_code="MEX",
-         missing_threshold=1, uniform_threshold=1):
-
-    folder = resolve_folder_path(folder)
-    print(f"[INFO] Using folder/file: {folder}")
-
-    if is_file(folder):
-        # Case: single file provided
-        print("[INFO] Detected a single file input")
-        process_file(
-            folder, 0, save_unlabel,
-            score_col, school_id_col, student_id_col,
-            country_code,
-            missing_threshold, uniform_threshold
-        )
-        return
-
-    # List folder contents
-    items = [os.path.join(folder, f) for f in os.listdir(folder)]
-    subfolders = [f for f in items if os.path.isdir(f)]
-    files = [f for f in items if os.path.isfile(f)]
-
-    # Case A: Folder with year subfolders
-    if subfolders and all(os.path.basename(sf).isdigit() for sf in subfolders):
-        print("[INFO] Detected structure: year subfolders")
-        for year_folder in subfolders:
-            year = int(os.path.basename(year_folder))
-            process_year_folder(
-                year_folder, year, save_unlabel, transform,
-                score_col, school_id_col, student_id_col,
-                country_code,
-                missing_threshold, uniform_threshold
-            )
-
-    # Case B: Folder name is a year or contains files → treat as year folder
-    elif os.path.basename(folder).isdigit() or files:
-        if not files:
-            print(f"[WARN] Year folder {folder} contains no files.")
-            return
-        print(folder)
-        year = int(os.path.basename(folder)) if os.path.basename(folder).isdigit() else 0
-        print(f"[INFO] Detected structure: year folder with files ({year})")
-        process_year_folder(
-            folder, year, save_unlabel, transform,
-            score_col, school_id_col, student_id_col,
-            country_code,
-            missing_threshold, uniform_threshold
-        )
-
-    else:
-        print("[INFO] Warning: No files or subfolders found.")
-
-
-
-# -------------------------------------------------------------------------
-# Helper: Process one year folder
-# -------------------------------------------------------------------------
-def process_year_folder(folder_year, year, save_unlabel, transform,
-                        score_col, school_id_col, student_id_col,code_country, missing_threshold, uniform_threshold):
-
-    print(f"[INFO] Processing year {year} in folder {folder_year}")
-    dict_df ={}
-    for file in os.listdir(folder_year):
-        if not file.endswith(tuple(type_file[:2])):
-            continue
-
-        file_path = os.path.join(folder_year, file)
-        print(f"[INFO] Processing file: {file}")
-
-        base_name = filebasename(file)
-        
-        df, score_col_i, school_id_col_i, student_id_col_i = process_file(file_path,year,save_unlabel,score_col, 
-                                                                   school_id_col, student_id_col,code_country, missing_threshold, uniform_threshold)
-        if df is None:
-            continue
-        
-        if score_col is None and score_col_i is not None:
-            score_col = score_col_i
-        if school_id_col is None and school_id_col_i is not None:
-            school_id_col = school_id_col_i
-        if student_id_col is None and student_id_col_i is not None:
-            student_id_col = student_id_col_i
-
-        dict_df[base_name] = df
+def main():
+    parser = argparse.ArgumentParser(description="PISA Data Pipeline CLI")
     
-    # --- Transform ---
-    if transform:
-        transformer = Transformer()
-        dict_df = transformer.run(
-            dict_df,
-            score_col=score_col,
-            ids_col=[student_id_col,school_id_col]
-        )
-    for name, df_t in dict_df.items():
-        save_dataframe_to_csv(df_t, f"{folder_year}/{folder_leveled}/{name}_{year}.csv")
-
-
-# -------------------------------------------------------------------------
-# Helper: flat folder case
-# -------------------------------------------------------------------------
-def process_file(file_path, year, save_unlabel,
-                            score_col, school_id_col, student_id_col, 
-                            country_code,
-                            missing_threshold=.1, uniform_threshold=.1):
-        print(f"[INFO] Processing file: {file_path}")
-        folder = os.path.dirname(file_path)
-        base_name = filebasename(file_path)
-
-        # --- Load ---
-        loader = SAVloader()
-        df_labeled, df_unlabeled = loader.run(file_path,country_code)
-        if df_labeled is None:
-            print(f"[INFO] Skipping {os.path.basename(file_path)} (no labeled data, code ={country_code} ).")
-            return None, None, None, None
-
-        # --- Save intermediate data ---
-        if save_unlabel:
-            save_dataframe_to_csv(df_unlabeled, f"{folder}/{folder_extracted}/{base_name}_{year}.csv")
-
-        save_dataframe_to_csv(df_labeled, f"{folder}/{folder_labeled}/{base_name}_{year}.csv")
-
-        # --- Clean ---
-        cleaner = CSVCleaner()
-        df_cleaned = cleaner.run(
-            df_labeled,
-            base_name,
-            [student_id_col, school_id_col],
-            missing_threshold, uniform_threshold
-        )
-        save_dataframe_to_csv(df_cleaned, f"{folder}/{folder_cleaned}/{base_name}_{year}.csv")
-        auto_score, auto_school, auto_student = cleaner.detect_columns(df_cleaned)
-        score_col = score_col or auto_score
-        school_id_col = school_id_col or auto_school
-        student_id_col = student_id_col or auto_student
-
-        return df_cleaned, score_col, school_id_col, student_id_col
-# -------------------------------------------------------------------------
-# Entry point
-# -------------------------------------------------------------------------
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Pipeline de datos PISA")
-    parser.add_argument(
-        "-s", "--save_unlabel",
-        action="store_true",
-        help="Guardar el CSV sin etiquetas después de cargarlo"
-    )
-    parser.add_argument(
-        "-f", "--folder",
-        type=str,
-        default="raw_data",
-        help="Root folder of the raw data (years or flat)"
-    )
-    parser.add_argument("-scr","--score_col", type=str, help="Name of the score column")
-    parser.add_argument("-sch","--school_id_col", type=str, help="Name of the school ID column")
-    parser.add_argument("-stu","--student_id_col", type=str, help="Name of the student ID column")
-    parser.add_argument("-c","--country_code", type=str,default="MEX", help="Code of the country of students ")
-    parser.add_argument("-mt","--missing_threshold", type=float, default=1, help="Threshold to suppress columns with average of missing value above")
-    parser.add_argument("-ut","--uniform_threshold", type=float, default=1,help="hreshold to suppress columns with same value above, regarless of missing value")
+    # Input/Output
+    parser.add_argument("-f", "--folder", type=str, default="raw_data", help="Input file or folder")
+    parser.add_argument("-s", "--save_unlabel", action="store_true", help="Save unlabeled CSVs")
+    
+    # Process Flags (Default: Run all if none specified)
+    parser.add_argument("--only-label", action="store_true", help="Run only Label step")
+    parser.add_argument("--only-clean", action="store_true", help="Run only Clean step")
+    parser.add_argument("--only-transform", action="store_true", help="Run only Transform step")
+    
+    # Columns
+    parser.add_argument("-scr", "--score_col", type=str, help="Score column name")
+    parser.add_argument("-sch", "--school_id_col", type=str, help="School ID column name")
+    parser.add_argument("-stu", "--student_id_col", type=str, help="Student ID column name")
+    parser.add_argument("-c", "--country_code", type=str, default="MEX", help="Country code (e.g. MEX)")
+    
+    # Thresholds
+    parser.add_argument("-mt", "--missing_threshold", type=float, default=1.0, help="Missing value threshold (0-1)")
+    parser.add_argument("-ut", "--uniform_threshold", type=float, default=1.0, help="Uniformity threshold (0-1)")
+    parser.add_argument("-ct", "--correlation_threshold", type=float, default=1.0, help="Correlation threshold (0-1)")
+    
+    # Splitting
+    parser.add_argument("-sd", "--split_dataset", action="store_true", help="Enable dataset splitting")
+    parser.add_argument("-sr", "--split_ranges", type=str, help="Split ranges (e.g. '0:10, 20:30')")
 
     args = parser.parse_args()
-    main(
-        folder=args.folder,
-        save_unlabel=args.save_unlabel,
-        score_col=args.score_col,
-        school_id_col=args.school_id_col,
-        student_id_col=args.student_id_col,
-        country_code = args.country_code,
-        missing_threshold=args.missing_threshold,
-        uniform_threshold=args.uniform_threshold
-    )
+    
+    # Determine steps
+    run_label = True
+    run_clean = True
+    run_transform = True
+    
+    if args.only_label or args.only_clean or args.only_transform:
+        run_label = args.only_label
+        run_clean = args.only_clean
+        run_transform = args.only_transform
+        
+        # Dependency logic: If generic run (e.g. just script.py), run all. 
+        # But if specific flags, only run those.
+        # NOTE: A full run usually requires sequential inputs.
+        # If user asks --only-clean, we assume labeled files exist.
+    
+    path = resolve_folder_path(args.folder)
+    if not os.path.exists(path):
+        print(f"[ERROR] Path not found: {path}")
+        return
+
+    service = PipelineService()
+    
+    # -------------------------------------------------------------------------
+    # 1. Collect Files
+    # -------------------------------------------------------------------------
+    files_to_process = []
+    if os.path.isfile(path):
+        files_to_process.append(path)
+    else:
+        for root, dirs, files in os.walk(path):
+            # Skip output folders to prevent recursion loops
+            if any(x in root for x in ["labeled", "cleaned", "leveled", ".backups"]):
+                continue
+            for f in files:
+                if f.lower().endswith(('.sav', '.csv')):
+                    files_to_process.append(os.path.join(root, f))
+
+    if not files_to_process:
+        print("[INFO] No files found to process.")
+        return
+
+    print(f"[INFO] Found {len(files_to_process)} file(s).")
+    
+    # -------------------------------------------------------------------------
+    # 2. Label Step
+    # -------------------------------------------------------------------------
+    labeled_files = []
+    if run_label:
+        print("\n--- STEP 1: LOAD & LABEL ---")
+        for f in files_to_process:
+            if f.lower().endswith(".sav"):
+                print(f"Processing: {os.path.basename(f)}")
+                try:
+                    res = service.load_and_label(f, args.country_code, args.save_unlabel)
+                    labeled_files.extend(res.keys())
+                except Exception as e:
+                    print(f"[ERROR] Failed to label {f}: {e}")
+            elif f.lower().endswith(".csv") and "labeled" in f:
+                 # Already labeled
+                 labeled_files.append(f)
+            else:
+                 # Raw CSV? Treat as source if not saving
+                 pass 
+
+    # If skipped label step, try to find existing labeled files
+    if not run_label:
+         # Rough heuristic: look for 'labeled' folder or assume inputs are labeled
+         for root, dirs, files in os.walk(path):
+             if "labeled" in root:
+                 for f in files:
+                     if f.endswith(".csv"):
+                         labeled_files.append(os.path.join(root, f))
+         if not labeled_files and os.path.isfile(path) and path.endswith(".csv"):
+             labeled_files.append(path)
+
+    # -------------------------------------------------------------------------
+    # 3. Clean Step
+    # -------------------------------------------------------------------------
+    cleaned_files = []
+    if run_clean and labeled_files:
+        print("\n--- STEP 2: CLEAN ---")
+        for f in labeled_files:
+            print(f"Cleaning: {os.path.basename(f)}")
+            try:
+                # Load df
+                df = pd.read_csv(f, encoding="cp1252")
+                
+                # Auto Detect IDs if needed
+                cur_score = args.score_col
+                cur_school = args.school_id_col
+                cur_student = args.student_id_col
+                
+                # Smart validation
+                if cur_score and cur_score not in df.columns: cur_score = None
+                if cur_school and cur_school not in df.columns: cur_school = None
+                if cur_student and cur_student not in df.columns: cur_student = None
+
+                if not all([cur_score, cur_school, cur_student]):
+                    auto_s, auto_sch, auto_stu = service.auto_detect_ids(df)
+                    cur_score = cur_score or auto_s
+                    cur_school = cur_school or auto_sch
+                    cur_student = cur_student or auto_stu
+                
+                res = service.clean_file(
+                    f, df, cur_score, cur_school, cur_student,
+                    args.missing_threshold, args.uniform_threshold, args.correlation_threshold
+                )
+                if res:
+                    cleaned_files.append(res[0])
+            except Exception as e:
+                print(f"[ERROR] Failed to clean {f}: {e}")
+
+    # If skipped clean step
+    if not run_clean:
+         for root, dirs, files in os.walk(path):
+             if "cleaned" in root:
+                 for f in files:
+                     if f.endswith(".csv"):
+                         cleaned_files.append(os.path.join(root, f))
+         if not cleaned_files and not run_label and os.path.isfile(path): # fallback
+             cleaned_files.append(path)
+
+    # -------------------------------------------------------------------------
+    # 4. Transform Step
+    # -------------------------------------------------------------------------
+    if run_transform and cleaned_files:
+        print("\n--- STEP 3: TRANSFORM ---")
+        
+        # Parse ranges
+        ranges = []
+        if args.split_dataset and args.split_ranges:
+            try:
+                for part in args.split_ranges.split(','):
+                    if ':' in part:
+                        s, e = part.split(':')
+                        ranges.append((int(s), int(e)))
+            except:
+                print("[ERROR] Invalid split ranges format. Use '0:10, 20:30'")
+        
+        # Load all into dict
+        dfs_dict = {}
+        for f in cleaned_files:
+            try:
+                df = pd.read_csv(f, encoding="cp1252")
+                base = os.path.splitext(os.path.basename(f))[0]
+                dfs_dict[base] = df
+            except: pass
+            
+        if dfs_dict:
+            # Detect best IDs global
+            (auto_s, auto_sch, auto_stu) = service.get_best_ids(dfs_dict)
+            s_col = args.score_col or auto_s
+            sch_col = args.school_id_col or auto_sch
+            stu_col = args.student_id_col or auto_stu
+            
+            ids_list = [c for c in [stu_col, sch_col] if c]
+            
+            if s_col:
+                # Output dir
+                root_out = path if os.path.isdir(path) else os.path.dirname(path)
+                
+                res = service.transform_files(dfs_dict, s_col, ids_list, ranges, root_out)
+                print(f"[SUCCESS] Transformed {len(res)} files.")
+            else:
+                print("[ERROR] Could not determine score column for transformation.")
+    
+    print("\n[INFO] Pipeline finished.")
+
+if __name__ == "__main__":
+    main()

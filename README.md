@@ -1,213 +1,150 @@
-# PISA Pipeline
+# PISA Data Pipeline
 
-A modular and extensible Python pipeline designed to load, clean, transform, and analyze PISA questionnaire datasets. It supports `.sav` (SPSS) and `.csv` formats and provides a complete workflow for preparing the data for statistical analysis and machine learning.
+A modular, robust, and user-friendly pipeline for processing PISA (Programme for International Student Assessment) datasets. Designed for researchers and data scientists to easily standardize, clean, and transform educational data for analysis and machine learning.
 
----
-
-## Features
-
-- **Flexible Data Loading** – Load PISA `.sav` files (SPSS) and `.csv` files with a unified interface
-- **Automated Cleaning** – Missing values handling, variable filtering, type normalization, and dataset consistency checks
-- **Data Transformation Tools** – Apply recoding, feature engineering, merging, and column restructuring
-- **Country Filtering** – Extract data for specific countries using ISO codes (e.g., `MEX` for Mexico)
-- **Machine Learning Ready** – Export datasets for models such as Random Forest, Gradient Boosting, and Decision Trees
-- **Modular Architecture** – Each step (load → clean → transform → save) is encapsulated to allow independent testing and updates
-- **GUI Interface** – User-friendly graphical interface for non-technical users
-- **Command Line Script** – Powerful CLI tool for batch processing and automation
+![App Screenshot Placeholder](https://via.placeholder.com/800x400?text=PISA+Pipeline+GUI)
 
 ---
 
-## Project Structure
+## 🚀 Quick Start: Command Line Interface (CLI)
 
-```
-pisa_pipeline/
-│── data_processing/
-│   ├── spss_loader.py
-│   ├── sav_loader.py
-│   ├── cleaner.py
-│   ├── transformer.py
-│   └── process_results.py
-│── utils/
-│   ├── io.py
-│   └── file_utils.py
-│── main.py                  # GUI Application
-│── script.py                # Command Line Script
-│── requirements.txt
-│── README.md
-```
+For researchers who prefer terminal commands or need to process data in batches, `script.py` is the power tool.
 
----
-
-## Installation
-
-Clone the repository:
-
+**Basic Usage:**
 ```bash
-git clone https://github.com/NiEsteban/pisa.git
-cd pisa
+python script.py -f "raw_data/2018" -c MEX
 ```
 
-Install dependencies:
-
+**Advanced Usage:**
 ```bash
-pip install -r requirements.txt
+python script.py -f "raw_data" -mt 0.2 -ut 0.1 -ct 0.95 -sd
 ```
+
+**Arguments Guide:**
+-   `-f, --folder`: Input file or folder path (recursive detection).
+-   `-s, --save_unlabel`: Save intermediate unlabeled CSVs.
+-   `-c, --country_code`: Country code to filter (e.g., `MEX`, `USA`, `ESP`).
+-   `-mt, --missing_threshold`: Drop columns with more than X% missing values (default: 1.0).
+-   `-ut, --uniform_threshold`: Drop columns with more than X% same values (default: 1.0).
+-   `-ct, --correlation_threshold`: Drop highly correlated columns (default: 1.0 = disabled).
+-   `-sd, --split_dataset`: Enable splitting the dataset.
+-   `-sr, --split_ranges`: Define split ranges (e.g., `"0:50, 50:100"`).
+-   `--only-label` / `--only-clean` / `--only-transform`: Run specific steps only.
 
 ---
 
-## Usage
+## 🛠️ Exhaustive GUI User Guide
 
-### Option 1: GUI Interface (Recommended for Beginners)
-
-Launch the graphical interface:
-
+Launch the app with:
 ```bash
 python main.py
 ```
 
-The interface allows you to:
-- Browse and select PISA data files or folders
-- Configure cleaning parameters with sliders and dropdowns
-- Specify column names or use auto-detection
-- Monitor processing progress in real-time
-- View output folders and results
+### 1. File Selection & Navigation
+You can process data in two ways:
+-   **Folder Mode**: Select a root folder (e.g., `2015/`). The app will intelligently find all relevant files inside it.
+-   **File Mode**: Select specific files (Ctrl+Click or Shift+Click) in the file tree to process only those.
 
-### Option 2: Command Line Script (Recommended for Automation)
+**Supported Formats:**
+-   **Modern PISA**: `.sav` (SPSS Data Files).
+-   **Legacy PISA (e.g., 2012)**: `.sps` (SPSS Syntax Files) paired with `.txt` data files.
+    *   *Note: If you have a `.txt` data file, please select the corresponding `.sps` syntax file to load it correctly.*
+-   **Processed Data**: `.csv` (Comma Separated Values).
 
-Run the pipeline script with default settings:
+### 2. Step 1: Load & Label
+**Goal:** Convert raw binary data into human-readable CSVs.
+> **⚠️ IMPORTANT:** You must always run this step first for new raw data.
 
-```bash
-python script.py
-```
+-   **How to run:**
+    1.  Select your raw data folder or specific `.sav`/`.sps` files.
+    2.  Enter the **Country Code** (e.g., `MEX`) in the settings panel.
+    3.  Click **"Load & Label"**.
+-   **What happens:**
+    -   Reads the raw file (handling both `.sav` and `.txt`+`.sps`).
+    -   Filters only the rows for your selected country.
+    -   Decodes all metadata (e.g., converts `1` → `Female`, `2` → `Male`).
+    -   **Output:** Creates a `labeled/` folder containing the decoded CSVs.
 
-Process a specific folder or file with custom parameters:
+### 3. Step 2: Clean
+**Goal:** Improve data quality by removing garbage columns.
+> **⚠️ INFO:** Operates on the CSV files generated in Step 1.
 
-```bash
-python script.py -f raw_data/2018 -c MEX -scr PV1MATH -stu CNTSTUID -sch CNTSCHID
+-   **Settings:**
+    -   **Missing Threshold (0-1)**: Drop columns that are mostly empty (e.g., `0.9` drops columns with >90% missing data).
+    -   **Uniform Threshold (0-1)**: Drop columns where everyone has the same answer (e.g., `0.95` drops if >95% values are identical).
+    -   **Correlation Threshold (0-1)**: Drop columns that are redundant/duplicates (e.g., `0.99` drops one of a pair if they are 99% correlated).
+-   **Output:** Creates a `cleaned/` folder with the refined datasets.
+
+### 4. Step 3: Transform
+**Goal:** Create the final "Master Table" for Machine Learning.
+> **⚠️ INFO:** this leverages the cleaned files to merge students with their schools.
+
+-   **How to run:**
+    1.  Ensure you have processed Student (`STU`) and School (`SCH`) files.
+    2.  (Optional) Verify the detected **ID Columns** (Student, School, Score) in the inputs are correct.
+    3.  Click **"Transform"**.
+-   **What happens:**
+    -   **Merging**: Matches every Student to their School using the `School ID`.
+    -   **Leveling**: Converts numerical scores into PISA Proficiency Levels (e.g., `Level 2`, `Level 3`).
+    -   **Splitting (Optional)**: If checked, splits the dataset based on your ranges.
+-   **Output:** Creates a `leveled/` folder with the final merged CSV.
+
+### 5. Review & Manual Refinement
+**Goal:** Inspect your data and manually drop specific columns.
+-   **Visualizing**: Double-click ANY file in the tree (raw or processed) to see its columns in the right panel.
+-   **Manual Drop**:
+    1.  Check the boxes next to the columns you want to remove.
+    2.  Click **"Drop Checked Columns"**.
+    3.  The file is updated immediately.
+-   **Undo**: Made a mistake? Click **"Undo Last Drop"** to restore the file instantly.
+
+---
+
+## 📦 Installation
+
+1.  **Clone the Repository**
+    ```bash
+    git clone https://github.com/NiEsteban/pisa.git
+    cd pisa_clean
+    ```
+
+2.  **Install Dependencies**
+    Ensure you have Python 3.10+ installed.
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+---
+
+## 📂 Output Structure
+
+The pipeline uses a non-destructive folder hierarchy:
+
+```text
+MyData/
+├── 2018/
+│   ├── CY07_MST_STU_QQQ.sav        (Raw Input)
+│   ├── labeled/
+│   │   └── CY07_MST_STU_QQQ.csv    (Step 1 Output)
+│   ├── cleaned/
+│   │   └── CY07_MST_STU_QQQ.csv    (Step 2 Output)
+│   └── leveled/
+│       └── CY07_MST_STU_QQQ.csv    (Final Output)
 ```
 
 ---
 
-## Script Command Line Arguments
+## 🧩 Architecture
 
-| Argument | Short | Type | Default | Description |
-|----------|-------|------|---------|-------------|
-| `--folder` | `-f` | str | `raw_data` | Root folder or single file to process |
-| `--country_code` | `-c` | str | `MEX` | ISO country code to filter data |
-| `--score_col` | `-scr` | str | Auto-detect | Name of the score column |
-| `--student_id_col` | `-stu` | str | Auto-detect | Name of the student ID column |
-| `--school_id_col` | `-sch` | str | Auto-detect | Name of the school ID column |
-| `--missing_threshold` | `-mt` | float | `1.0` | Threshold to drop columns with missing values (0-1) |
-| `--uniform_threshold` | `-ut` | float | `1.0` | Threshold to drop columns with uniform values (0-1) |
-| `--save_unlabel` | `-s` | flag | `False` | Save intermediate unlabeled CSV files |
+This project uses a clean **Service-Oriented Architecture** with a strict separation between UI and Logic:
 
-### Script Examples
+-   **PipelineService**: The brain. Handles all data processing logic (loading, cleaning, transforming).
+-   **PipelineActions**: The bridge. Connects the GUI to the Service and manages background threads.
+-   **ThreadSafeConsole**: The reporter. Ensures logs from background threads appear safely in the GUI.
 
-**Process Mexican data from 2018:**
-```bash
-python script.py -f raw_data/2018 -c MEX
-```
-
-**Process with stricter cleaning thresholds:**
-```bash
-python script.py -f raw_data -mt 0.3 -ut 0.95
-```
-
-**Process a single file:**
-```bash
-python script.py -f raw_data/2018/CY07_MSU_STU_QQQ.sav -c USA
-```
-
-**Save intermediate unlabeled data:**
-```bash
-python script.py -f raw_data/2018 -c MEX -s
-```
+For a technical deep dive, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
-## Pipeline Workflow
-
-1. **Load** – Reads `.sav` or `.csv` files and filters by country code
-2. **Extract Labels** – Separates labeled (with metadata) and unlabeled data
-3. **Clean** – Removes columns with excessive missing or uniform values
-4. **Transform** – Applies feature engineering and data restructuring (optional)
-5. **Save** – Exports cleaned datasets to organized folders
-
-### Output Structure
-
-```
-raw_data/
-└── 2018/
-    ├── mexican/                          # Unlabeled data (if --save_unlabel used)
-    ├── mexican_labeled/                  # Labeled raw data
-    ├── mexican_labeled_cleaned/          # Cleaned data
-    └── mexican_labeled_cleaned_leveled/  # Transformed data (if enabled)
-```
-
----
-
-## Programmatic Usage
-
-You can also use the pipeline components directly in your Python code:
-
-```python
-from pisa_pipeline.data_processing.sav_loader import SAVloader
-from pisa_pipeline.data_processing.cleaner import CSVCleaner
-from pisa_pipeline.data_processing.transformer import Transformer
-
-# Load data
-loader = SAVloader()
-df_labeled, df_unlabeled = loader.run("data.sav", country_code="MEX")
-
-# Clean data
-cleaner = CSVCleaner()
-df_cleaned = cleaner.run(df_labeled, "student", ["CNTSTUID", "CNTSCHID"], 0.3, 0.95)
-
-# Transform data
-transformer = Transformer()
-df_transformed = transformer.run({"student": df_cleaned}, score_col="PV1MATH")
-```
-
----
-
-## Goals
-
-- Provide a reproducible workflow for analyzing PISA questionnaire data
-- Standardize preprocessing across different PISA cycles (2015, 2018, 2022, etc.)
-- Enable predictive modeling using educational variables
-- Support multi-country comparative studies
-- Make PISA data accessible to both technical and non-technical users
-
----
-
-## Requirements
-
-- Python 3.7+
-- pandas
-- numpy
-- pyreadstat (for .sav file support)
-- tkinter (usually included with Python, needed for GUI)
-
----
-
-## License
-
-IPN-CIC License
-
----
-
-## Troubleshooting
-
-**GUI won't launch:**
-- Ensure tkinter is installed: `python -m tkinter`
-- On Linux: `sudo apt-get install python3-tk`
-
-**Script can't find files:**
-- Check that file paths are correct
-- Use absolute paths if relative paths don't work
-- Verify file extensions match `.sav`, `.csv`, or `.text`
-
-**Out of memory errors:**
-- Process one year at a time
-- Increase missing/uniform thresholds to reduce data size
-- Use the script with specific file paths instead of entire folders
+## 📄 License
+IPN-CIC License.

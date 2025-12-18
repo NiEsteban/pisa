@@ -24,19 +24,8 @@ class ColumnDisplay:
         self.column_vars: Dict[str, tk.BooleanVar] = {}
         self.column_labels: Dict[str, ttk.Label] = {}
         
-        # Bind file selection event
-        self.gui.file_listbox.bind("<<ListboxSelect>>", self._on_file_selected)
+        # Binding is now handled in main_window.py via Treeview events
 
-    def _on_file_selected(self, event=None) -> None:
-        """Handle file selection - display columns for selected file"""
-        sel = self.gui.file_listbox.curselection()
-        if not sel:
-            return
-        
-        idx = sel[0]
-        if idx < len(self.gui.selected_files):
-            file_path = self.gui.selected_files[idx]
-            self.display_columns_for_file(file_path)
 
     def display_columns_for_file(self, file_path: str) -> None:
         """
@@ -55,10 +44,14 @@ class ColumnDisplay:
         # Get DataFrame
         df = self._get_dataframe(file_path)
         if df is None:
-            ttk.Label(
-                self.gui.col_inner_frame,
-                text=f"Unable to load: {os.path.basename(file_path)}"
-            ).pack(anchor="w")
+            if file_path:
+                ttk.Label(
+                    self.gui.col_inner_frame,
+                    text=f"Unable to load: {os.path.basename(file_path)}"
+                ).pack(anchor="w")
+            else:
+                # No file selected - clear display (done above)
+                pass
             return
 
         # Initialize columns_to_drop set if not exists
@@ -158,7 +151,7 @@ class ColumnDisplay:
                 
                 # Show visualizer in main thread
                 self.gui.root.after(0, lambda: StatsVisualizerFactory.show_stats(self.gui.root, stats))
-                print(f"[INFO] Statistics displayed for: {column_name}")
+                # print(f"[INFO] Statistics displayed for: {column_name}") # Reduced verbosity as requested
                 
             except Exception as e:
                 print(f"[ERROR] Failed to compute statistics: {e}")
@@ -181,6 +174,9 @@ class ColumnDisplay:
             DataFrame or None if not available
         """
         # Check if already loaded in memory
+        if not file_path:
+            return None
+            
         file_results = self.gui.file_results.get(file_path, {})
         
         # Try to get from memory (prioritize transformed > cleaned > labeled)

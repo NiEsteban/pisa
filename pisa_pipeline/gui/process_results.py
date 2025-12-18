@@ -4,7 +4,7 @@ import os
 from typing import List, Dict, Any
 import pandas as pd
 from pisa_pipeline.data_processing.process_results import ProcessResults
-from pisa_pipeline.utils.io import save_top_x_to_excel
+
 from pisa_pipeline.utils.algo_utils import detect_columns
 
 class ProcessResultsGUI:
@@ -35,6 +35,9 @@ class ProcessResultsGUI:
         self._setup_top_frame()
         self._setup_main_pane()
         self._setup_log_frame()
+        
+        # Console polling is handled globally by MainWindow
+
 
     def _setup_log_frame(self) -> None:
         """Create log panel"""
@@ -112,12 +115,13 @@ class ProcessResultsGUI:
         """Create actions panel"""
         actions_frame = ttk.LabelFrame(parent, text="Actions")
         actions_frame.pack(fill="x", pady=(0, 12), ipadx=4, ipady=4)
-        ttk.Button(
+        self.btn_run = ttk.Button(
             actions_frame,
             text="Run Process Results",
             command=self._run_process_results,
             style="Accent.TButton"
-        ).pack(fill="x", padx=4, pady=4)
+        )
+        self.btn_run.pack(fill="x", padx=4, pady=4)
         # Add Save button
         ttk.Button(
             actions_frame,
@@ -134,22 +138,10 @@ class ProcessResultsGUI:
         self.text_results.pack(fill="both", expand=True)
 
     def _save_top_x_results(self) -> None:
-        """Save top X ranking summary AND the dataset filtered to those top X variables.
-
-        Matching logic is the same as in the old `save_selected_attributes`:
-        - clean dataset column names
-        - clean attribute names from the ranking
-        - match only on cleaned names (exact, with optional very-close fuzzy fallback)
-        """
+        """Save top X ranking summary AND the dataset filtered to those top X variables."""
         try:
-            import os
-            import re
-            import pandas as pd
-            from difflib import get_close_matches
+            from pisa_pipeline.utils.io import save_results_with_mapping
 
-            # -------------------------------
-            # 0. Basic checks / UI settings
-            # -------------------------------
             if not self.results:
                 messagebox.showerror("Error", "No results to save. Run the process first.")
                 return
@@ -169,196 +161,14 @@ class ProcessResultsGUI:
                 messagebox.showerror("Error", "No analysis results found.")
                 return
 
-            output_file = os.path.join(output_dir, "top_selection_results.xlsx")
-
-            # ---------------------------------
-            # 1. Cleaning function (same as old)
-            # ---------------------------------
-            def clean_column_name(name: str) -> str:
-                # Remove control chars (\x00–\x1F) and literal backslashes or \v
-                name = re.sub(r"(\\v|[\x00-\x1F]|\\)+", "", str(name))
-                return name.strip()
-
-            # ---------------------------------
-            # 2. Work on a copy with CLEANED headers
-            #    (this mirrors your old script)
-            # ---------------------------------
-            dataset = dataset.copy()
-            dataset.columns = [clean_column_name(c) for c in dataset.columns]
-
-            # 2a. Detect ID and math columns on the CLEANED dataset
-            score_col, school_col, student_col, leveled_score_col = detect_columns(
-                dataset, detect_math_level=True
+            saved_path = save_results_with_mapping(
+                all_results=all_results,
+                dataset=dataset,
+                output_dir=output_dir,
+                top_x=top_x
             )
 
-            ids_col = [col for col in [school_col, student_col] if col and col in dataset.columns]
-            if not ids_col:
-                # Fallback: try to find columns with "id" in the name
-                ids_col = [col for col in dataset.columns if "id" in col.lower()]
-
-            print(f"Debug: (cleaned) ID Columns: {ids_col}, Math Column: {leveled_score_col}")
-
-            # ---------------------------------
-            # 3. Helper: map attribute name -> dataset column
-            #    using CLEANED names only, like in save_selected_attributes
-            # ---------------------------------
-            dataset_clean_cols = list(dataset.columns)
-
-            def map_attr_name_to_col(attr_name: str,
-                                    use_fuzzy: bool = True,
-                                    cutoff: float = 0.96):
-                """
-                Map an Attribute_Name coming from the ranking summary
-                to a dataset column using cleaned names.
-
-                1) exact match on cleaned name
-                2) (optional) very strict fuzzy match on cleaned name
-                NO index / Attribute_ID used.
-                """
-                if attr_name is None:
-                    return None, "none"
-
-                cleaned = clean_column_name(attr_name)
-                if not cleaned:
-                    return None, "none"
-
-                # 1) exact cleaned match
-                if cleaned in dataset_clean_cols:
-                    return cleaned, "exact"
-
-                # 2) optional fuzzy on cleaned names
-                if use_fuzzy:
-                    matches = get_close_matches(cleaned, dataset_clean_cols, n=1, cutoff=cutoff)
-                    if matches:
-                        return matches[0], "fuzzy"
-
-                return None, "none"
-
-            # ---------------------------------
-            # 4. Write Excel with two sheets per dataset_key
-            # ---------------------------------
-            with pd.ExcelWriter(output_file, engine="openpyxl", mode="w") as writer:
-
-                for dataset_key, result_data in all_results.items():
-                    print(f"Processing results for: {dataset_key}")
-
-                    full_summary = result_data.get("summary")
-                    if full_summary is None or full_summary.empty:
-                        continue
-
-                    # ---- find the attribute name column (like before) ----
-                    attr_name_col = None
-                    for col in full_summary.columns:
-                        low = col.lower()
-                        if "attribute" in low and "name" in low:
-                            attr_name_col = col
-                            break
-
-                    if attr_name_col is None:
-                        for col in full_summary.columns:
-                            low = col.lower()
-                            if low in ("attribute", "variable", "feature"):
-                                attr_name_col = col
-                                break
-
-                    if attr_name_col is None:
-                        for col in full_summary.columns:
-                            low = col.lower()
-                            if "rank" not in low and "score" not in low:
-                                attr_name_col = col
-                                break
-
-                    if attr_name_col is None:
-                        attr_name_col = full_summary.columns[0]
-
-                    print(f"Debug: Using attribute name column: {attr_name_col}")
-
-                    # Get TOP X rows (assumed sorted)
-                    top_summary = full_summary.head(top_x).copy()
-
-                    # ------------------------------
-                    # 4a. Map Attribute_Name -> dataset column (cleaned names)
-                    # ------------------------------
-                    mapped_dataset_columns = []
-                    match_types = []
-
-                    for _, row in top_summary.iterrows():
-                        name_val = row[attr_name_col]
-                        col_name, mtype = map_attr_name_to_col(
-                            name_val,
-                            use_fuzzy=True,   # set False if you want only exact
-                            cutoff=0.96
-                        )
-                        mapped_dataset_columns.append(col_name)
-                        match_types.append(mtype)
-
-                    print(
-                        "Debug: requested top attributes:",
-                        list(top_summary[attr_name_col])
-                    )
-                    print(
-                        "Debug: mapped dataset columns for", dataset_key, ":",
-                        mapped_dataset_columns
-                    )
-
-                    # Add mapping info to summary sheet
-                    top_summary["mapped_dataset_column"] = mapped_dataset_columns
-                    top_summary["match_type"] = match_types
-
-                    # unique, in order, non-empty
-                    selected_cols = []
-                    for c in mapped_dataset_columns:
-                        if c and c not in selected_cols:
-                            selected_cols.append(c)
-
-                    if not selected_cols:
-                        print("Warning: None of the top attributes could be matched to dataset columns.")
-                        sheet_name_rank = f"Rank_{dataset_key}"[:31]
-                        top_summary.to_excel(writer, sheet_name=sheet_name_rank, index=False)
-                        continue
-
-                    # ------------------------------
-                    # 4b. Build the filtered dataset
-                    #     (like save_selected_attributes: top-X + essentials)
-                    # ------------------------------
-                    # Essentials here are IDs + math level
-                    essentials = ids_col.copy()
-                    if leveled_score_col and leveled_score_col in dataset.columns:
-                        essentials.append(leveled_score_col)
-
-                    # All columns we want (top selected + essentials)
-                    all_selected = selected_cols + essentials
-                    all_selected_clean = [clean_column_name(a) for a in all_selected]
-
-                    # Match against cleaned dataset columns (same as in old script)
-                    cols_to_save = []
-                    seen = set()
-                    for c in all_selected_clean:
-                        if c in dataset.columns and c not in seen:
-                            seen.add(c)
-                            cols_to_save.append(c)
-
-                    if not cols_to_save:
-                        print("Warning: No columns found in dataset after cleaning.")
-                        sheet_name_rank = f"Rank_{dataset_key}"[:31]
-                        top_summary.to_excel(writer, sheet_name=sheet_name_rank, index=False)
-                        continue
-
-                    subset_df = dataset[cols_to_save].copy()
-
-                    print(f"Debug: final cols_to_save for {dataset_key}: {cols_to_save}")
-                    print(f"Debug: subset_df shape for {dataset_key}: {subset_df.shape}")
-
-                    # ------------------------------
-                    # 4c. Save to Excel
-                    # ------------------------------
-                    sheet_name_rank = f"Rank_{dataset_key}"[:31]
-                    sheet_name_data = f"Data_{dataset_key}"[:31]
-
-                    top_summary.to_excel(writer, sheet_name=sheet_name_rank, index=False)
-                    subset_df.to_excel(writer, sheet_name=sheet_name_data, index=False)
-
-            messagebox.showinfo("Success", f"Saved Top {top_x} results to:\n{output_file}")
+            messagebox.showinfo("Success", f"Saved Top {top_x} results to:\n{saved_path}")
 
         except Exception as e:
             import traceback
@@ -394,31 +204,48 @@ class ProcessResultsGUI:
             self.csv_dir = file_path
             self.csv_dir_var.set(file_path)
 
+
+
     def _run_process_results(self) -> None:
-        """Run the process results pipeline"""
+        """Run the process results pipeline in a separate thread"""
         try:
-            # Parse inputs
+            # 1. Capture UI values (Main Thread)
             self.results_name = [ds.strip() for ds in self.results_name_var.get().split(",") if ds.strip()]
             self.ranking_filters = [rf.strip() for rf in self.ranking_filters_var.get().split(",") if rf.strip()]
             self.selection_filters = [sf.strip() for sf in self.selection_filters_var.get().split(",") if sf.strip()]
             self.scoring_weights = [float(w.strip()) for w in self.scoring_weights_var.get().split(",") if w.strip()]
             self.num_selected = self.num_selected_var.get()
-            #print(f"Debug: Number of selected attributes: {self.num_selected}")
 
-            # Parse essentials
             self.essentials = {}
             for ess in self.essentials_var.get().split(";"):
-                if ":" not in ess:
-                    continue
+                if ":" not in ess: continue
                 ds, attrs = ess.split(":", 1)
                 ds = ds.strip()
                 attrs = [a.strip() for a in attrs.split(",") if a.strip()]
                 self.essentials[ds] = attrs
-            #print(f"Debug: Essentials: {self.essentials}")
 
-            # Run process
+            # 2. Disable UI
+            # We need to find the button reference. In _setup_actions_frame we didn't save it to self.btn_run!
+            # Let's fix that in a separate edit or assume standard naming? 
+            # Looking at previous code, it was just ttk.Button(...).pack(). 
+            # I need to modify _setup_actions_frame to save self.btn_run.
+            
+            # For now start thread
+            import threading
+            t = threading.Thread(target=self._run_process_results_worker, daemon=True)
+            t.start()
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to start process: {e}")
+
+    def _run_process_results_worker(self) -> None:
+        try:
+            from pisa_pipeline.gui.thread_safe_console import ThreadSafeConsole
+            ThreadSafeConsole().redirect_sys_output()
+            
+            print("[Results] Starting processing in background thread...")
+            
             processor = ProcessResults()
-            #print(f"Debug: Results directory: {self.results_dir}")
             results = processor.run(
                 results_dir=self.results_dir,
                 dataset_path=self.csv_dir,
@@ -430,10 +257,9 @@ class ProcessResultsGUI:
                 results_name=self.results_name
             )
 
-            # If "overall_summary" is missing, create it from "all_results" or "summaries"
+            # Logic to ensure overall_summary exists
             if "overall_summary" not in results or results["overall_summary"].empty:
                 if "all_results" in results:
-                    # Concatenate all dataset summaries into one DataFrame
                     all_summaries = []
                     for dataset_name, dataset_results in results["all_results"].items():
                         if "summary" in dataset_results:
@@ -441,34 +267,32 @@ class ProcessResultsGUI:
                     if all_summaries:
                         results["overall_summary"] = pd.concat(all_summaries, ignore_index=True)
                     else:
-                        results["overall_summary"] = pd.DataFrame()  # Empty DataFrame
+                        results["overall_summary"] = pd.DataFrame()
                 elif "summaries" in results:
-                    # Concatenate all summaries into one DataFrame
                     all_summaries = []
                     for dataset_name, summary_df in results["summaries"].items():
                         all_summaries.append(summary_df)
                     if all_summaries:
                         results["overall_summary"] = pd.concat(all_summaries, ignore_index=True)
                     else:
-                        results["overall_summary"] = pd.DataFrame()  # Empty DataFrame
+                        results["overall_summary"] = pd.DataFrame()
 
-            print(f"Debug: Overall summary shape: {results['overall_summary'].shape if 'overall_summary' in results else 'No overall summary'}")
-
-            # Store the results in the class attribute
+            print(f"Debug: Overall summary shape: {results['overall_summary'].shape}")
+            
             self.results = results
-
-            # Add the dataset to the results dictionary
             self.results["dataset"] = pd.read_csv(self.csv_dir, encoding="cp1252")
             print(f"Debug: Dataset shape: {self.results['dataset'].shape}")
-
-            # Display results
-            self._display_results(results)
+            
+            # Schedule UI update
+            self.parent.after(0, lambda: self._display_results(results))
+            print("\n✅ Results processing completed.")
+            
         except Exception as e:
             import traceback
-            error_msg = f"Failed to run process: {e}\n{traceback.format_exc()}"
-            print(error_msg)
+            err = f"Worker failed: {e}\n{traceback.format_exc()}"
+            print(err)
 
-
+        
     def _display_results(self, results: Dict[str, Any]) -> None:
         """Display results in the text widget"""
         self.text_results.config(state="normal")
@@ -500,3 +324,4 @@ class ProcessResultsGUI:
                 self.text_results.insert(tk.END, summary_df.to_string(index=False) + "\n\n")
         self.text_results.config(state="disabled")
         print("\n✅ Results displayed successfully in the Results panel")
+

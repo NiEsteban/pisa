@@ -44,33 +44,44 @@ class StatsVisualizerFactory:
         top_frame = ttk.Frame(window)
         top_frame.pack(side="top", fill="x", padx=10, pady=10)
 
+        # Helper to safely format numbers that might be None
+        def safe_fmt(val, fmt=".4f"):
+            try:
+                return f"{val:{fmt}}" if val is not None else "N/A"
+            except:
+                return "N/A"
+
         # Summary statistics
+        # We use safe_fmt for all calculated values
         summary = (
-            f"Type: {stats['dtype']}\n"
-            f"Mean: {stats['mean']:.4f} | Std: {stats['std']:.4f} | Var: {stats['variance']:.4f}\n"
-            f"Min: {stats['min']:.4f} | Q25: {stats['q25']:.4f} | Median: {stats['median']:.4f} | "
-            f"Q75: {stats['q75']:.4f} | Max: {stats['max']:.4f}\n"
-            f"Missing: {stats['missing_count']} ({stats['missing_percentage']:.2f}%)"
+            f"Type: {stats.get('dtype', 'Unknown')}\n"
+            f"Mean: {safe_fmt(stats.get('mean'))} | Std: {safe_fmt(stats.get('std'))} | Var: {safe_fmt(stats.get('variance'))}\n"
+            f"Min: {safe_fmt(stats.get('min'))} | Q25: {safe_fmt(stats.get('q25'))} | Median: {safe_fmt(stats.get('median'))} | "
+            f"Q75: {safe_fmt(stats.get('q75'))} | Max: {safe_fmt(stats.get('max'))}\n"
+            f"Missing: {stats.get('missing_count', 0)} ({safe_fmt(stats.get('missing_percentage', 0), '.2f')}%)"
         )
 
         ttk.Label(top_frame, text=summary, justify="left", font=("Consolas", 10)).pack(anchor="w")
 
-        # Histogram
+        # Histogram (Keep your existing logic here)
         hist_data = stats.get("histogram_data", {})
         counts = hist_data.get("counts", [])
         bin_edges = hist_data.get("bin_edges", [])
 
-        if counts and bin_edges:
-            fig, ax = plt.subplots(figsize=(6, 3))
-            ax.bar(bin_edges[:-1], counts, width=(bin_edges[1] - bin_edges[0]), edgecolor="black")
-            ax.set_title(f"Distribution of {stats['name']}")
-            ax.set_xlabel(stats["name"])
-            ax.set_ylabel("Frequency")
-            fig.tight_layout()
+        if counts and len(bin_edges) > 0:
+            try:
+                fig, ax = plt.subplots(figsize=(6, 3))
+                ax.bar(bin_edges[:-1], counts, width=(bin_edges[1] - bin_edges[0]), edgecolor="black")
+                ax.set_title(f"Distribution of {stats['name']}")
+                ax.set_xlabel(stats["name"])
+                ax.set_ylabel("Frequency")
+                fig.tight_layout()
 
-            canvas = FigureCanvasTkAgg(fig, master=window)
-            canvas.draw()
-            canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
+                canvas = FigureCanvasTkAgg(fig, master=window)
+                canvas.draw()
+                canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
+            except Exception as e:
+                ttk.Label(window, text=f"Could not render plot: {e}").pack()
 
     # ------------------------------------------------------------------
     # Categorical visualization

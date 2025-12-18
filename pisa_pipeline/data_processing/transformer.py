@@ -71,16 +71,9 @@ def merge_each_with_score(score_df: pd.DataFrame, other_df: pd.DataFrame, key: s
     Merge score_df with other_df using kepping the id and score only.
     Returns the merged DataFrame.
     """
-    cols = []
-    seen = set()
-    for col in [key, score_col] + keep_ids:
-        if col not in seen and col in score_df.columns:
-            cols.append(col)
-            seen.add(col)
-    # Subset score_df
-    score_subset = score_df[cols].copy()
+    # Revert: Do not subset score_df. Keep all columns.
     dfs_dict = {
-        "score_df": score_subset,
+        "score_df": score_df,
         "other_df": other_df
     }
     merged = merge_with_base(
