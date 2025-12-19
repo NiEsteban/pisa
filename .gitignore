@@ -4,5 +4,5 @@ __pycache__/
 .vscode/
 raw_data/
 *.log
-ARCHITECTURE.md
 crash_log.txt
+report/
