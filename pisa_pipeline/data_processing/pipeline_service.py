@@ -133,11 +133,11 @@ class PipelineService:
             df_clean = cleaner.run(
                 df,
                 base,
-                ids=[student_col, school_col],
+                protected_ids_list=[student_col, school_col],
                 missing_threshold=missing_thr,
                 uniform_threshold=uniform_thr,
                 correlation_threshold=correlation_thr,
-                target=score_col
+                target_column=score_col
             )
             save_dataframe_to_csv(df_clean, out_path)
             return out_path, df_clean

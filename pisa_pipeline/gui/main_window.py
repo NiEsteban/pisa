@@ -19,9 +19,6 @@ from pisa_pipeline.utils.gui_utils import TextRedirector
 from pisa_pipeline.gui.process_results import ProcessResultsGUI
 
 
-
-
-
 class StepwisePipelineGUI:
     """Main GUI application for PISA Stepwise Pipeline"""
 
@@ -69,6 +66,7 @@ class StepwisePipelineGUI:
         self.uniform_thr = tk.DoubleVar(value=1.0)
         self.split_dataset_var = tk.BooleanVar(value=False)
         self.split_ranges_var = tk.StringVar(value="0:10, 20:30")
+        self.ids_lock_var = tk.BooleanVar(value=False)
 
         # Widgets that will be created
         self.file_listbox = None
@@ -94,7 +92,6 @@ class StepwisePipelineGUI:
         from pisa_pipeline.gui.pipeline_actions import PipelineActions
 
         # Initialize sub-components
-        # self.file_manager is initialized in _setup_left_frame (TreeFileManager)
         self.column_display = ColumnDisplay(self)
         self.pipeline_actions = PipelineActions(self)
 
@@ -187,17 +184,11 @@ class StepwisePipelineGUI:
         file_scroll.pack(side="left", fill="y")
 
         # Initialize TreeFileManager
-        # We need to do this here or mostly in __init__.
-        # But __init__ didn't have self.file_tree yet.
-        # Ideally, we init manager in __init__ but setup tree here.
-        # But let's check where self.file_manager was created originally. It was in __init__ in original code?
-        # No, duplicate code below showed it was just being used.
-        # Let's import here to be safe and set it up.
         from pisa_pipeline.gui.tree_file_manager import TreeFileManager
         self.file_manager = TreeFileManager(self)
         self.file_manager.setup_tree(self.file_tree)
 
-        # Bind selection event to update columns
+        # Bind selection event to update columns AND triggers actions
         def on_tree_select(event):
             selected_files = self.file_manager.get_selected_files()
             if selected_files:
@@ -209,9 +200,11 @@ class StepwisePipelineGUI:
                     self.column_display.display_columns_for_file(None)
             else:
                 self.column_display.display_columns_for_file(None)
+            
+            # TRIGGER ID DETECTION LOGIC
+            self.pipeline_actions.on_selection_change(selected_files)
         
         self.file_tree.bind("<<TreeviewSelect>>", on_tree_select)
-
 
     def _setup_center_frame(self, parent: ttk.Frame) -> None:
         """Create columns display panel"""
@@ -322,23 +315,33 @@ class StepwisePipelineGUI:
         )
         id_frame.pack(fill="x", pady=(0, 12), ipadx=4, ipady=4)
 
+        # Header with Lock Checkbox
+        header = ttk.Frame(id_frame)
+        header.grid(row=0, column=0, columnspan=2, sticky="ew", padx=4, pady=(0, 4))
+        
+        ttk.Checkbutton(
+            header,
+            text="Lock Auto-Detect",
+            variable=self.ids_lock_var
+        ).pack(side="right")
+
         ttk.Label(id_frame, text="Score column:").grid(
-            row=0, column=0, sticky="e", padx=4, pady=4
-        )
-        ttk.Label(id_frame, text="School ID:").grid(
             row=1, column=0, sticky="e", padx=4, pady=4
         )
-        ttk.Label(id_frame, text="Student ID:").grid(
+        ttk.Label(id_frame, text="School ID:").grid(
             row=2, column=0, sticky="e", padx=4, pady=4
+        )
+        ttk.Label(id_frame, text="Student ID:").grid(
+            row=3, column=0, sticky="e", padx=4, pady=4
         )
 
         self.entry_score = ttk.Entry(id_frame, width=24)
         self.entry_school = ttk.Entry(id_frame, width=24)
         self.entry_student = ttk.Entry(id_frame, width=24)
 
-        self.entry_score.grid(row=0, column=1, padx=4, pady=2)
-        self.entry_school.grid(row=1, column=1, padx=4, pady=2)
-        self.entry_student.grid(row=2, column=1, padx=4, pady=2)
+        self.entry_score.grid(row=1, column=1, padx=4, pady=2)
+        self.entry_school.grid(row=2, column=1, padx=4, pady=2)
+        self.entry_student.grid(row=3, column=1, padx=4, pady=2)
 
     def _setup_load_label_frame(self) -> None:
         """Create Load & Label frame"""
@@ -367,8 +370,6 @@ class StepwisePipelineGUI:
             style="Accent.TButton"
         )
         self.btn_load_label.pack(fill="x", padx=4, pady=4)
-
-
 
     def _setup_clean_frame(self) -> None:
         """Create Clean frame"""
@@ -411,7 +412,6 @@ class StepwisePipelineGUI:
         )
         self.btn_clean.pack(fill="x", padx=4, pady=4)
 
-
     def _setup_transform_frame(self) -> None:
         """Create Transform frame"""
         transform_frame = ttk.LabelFrame(
@@ -448,8 +448,6 @@ class StepwisePipelineGUI:
 
     def _setup_bottom_frame(self, parent: ttk.Frame) -> None:
         """Create bottom frame - now empty since log moved to left side"""
-        # This method is kept for compatibility but does nothing
-        # Log is now in _setup_left_bottom_log()
         pass
 
     def _setup_left_bottom_log(self, parent: ttk.Frame) -> None:
@@ -495,6 +493,5 @@ class StepwisePipelineGUI:
         console.set_target_resolver(get_active_log_widget)
         console.redirect_sys_output()
         
-        # Start polling (if not already started by process_results, but it's safe to call twice as long as interval is okay. 
-        # Actually better to start it ONCE here at the root level)
+        # Start polling
         console.start_polling(self.root) 

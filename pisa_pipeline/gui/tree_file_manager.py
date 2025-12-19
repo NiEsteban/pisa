@@ -3,6 +3,7 @@ import os
 import tkinter as tk
 from tkinter import ttk, filedialog
 from typing import TYPE_CHECKING, List, Set
+from pisa_pipeline.utils.file_scanner import FileSystemScanner
 
 if TYPE_CHECKING:
     from pisa_pipeline.gui.main_window import StepwisePipelineGUI
@@ -83,10 +84,10 @@ class TreeFileManager:
             if not display_name: display_name = path 
             
             # Skip unwanted folders
-            if display_name.lower() in ["results", "resultados", "__pycache__", ".git"]:
-                # Unless it's the root we explicitly asked for
-                if not is_root:
-                    return
+            # if display_name.lower() in ["results", "resultados", "__pycache__", ".git"]:
+            #     # Unless it's the root we explicitly asked for
+            #     if not is_root:
+            #         return
 
             # Create node
             # Use path as ID to simplify lookups
@@ -104,7 +105,7 @@ class TreeFileManager:
             if os.path.isdir(path):
                 # Add dummy child ONLY if it has relevant content (peek)
                 if not self.tree.get_children(node_id):
-                    if self._has_relevant_content(path):
+                    if FileSystemScanner.has_relevant_content(path):
                         self.tree.insert(node_id, "end", text="dummy")
             
             # If root, we must expand it immediately
@@ -116,21 +117,6 @@ class TreeFileManager:
             pass
         except Exception as e:
             print(f"Error listing {path}: {e}")
-
-    def _has_relevant_content(self, path: str) -> bool:
-        """Check if folder contains relevant subfolders or files (shallow peek)"""
-        try:
-            with os.scandir(path) as it:
-                for entry in it:
-                    if entry.name.lower() in ["results", "resultados", "__pycache__", ".git", "$recycle.bin", "system volume information"]:
-                        continue
-                    if entry.is_dir():
-                        return True
-                    if entry.is_file() and entry.name.lower().endswith((".csv", ".sav", ".txt", ".sps", ".spss")):
-                        return True
-        except (PermissionError, OSError):
-            return False
-        return False
 
     def _on_tree_open(self, event):
         """Handle node expansion"""
@@ -171,25 +157,7 @@ class TreeFileManager:
         """
         try:
              # List contents
-            try:
-                entries = sorted(os.listdir(parent_path))
-            except OSError:
-                return
-
-            directories = []
-            files_list = []
-            
-            for entry_name in entries:
-                # Filter out system/output folders and hidden files
-                if entry_name.lower() in ["results", "resultados", "__pycache__", ".git", ".backups", "$recycle.bin", "system volume information"]:
-                    continue
-                    
-                full_path = os.path.join(parent_path, entry_name)
-                
-                if os.path.isdir(full_path):
-                    directories.append(full_path)
-                elif entry_name.lower().endswith((".csv", ".sav", ".txt", ".sps", ".spss")):
-                    files_list.append(full_path)
+            directories, files_list = FileSystemScanner.scan_directory(parent_path)
             
             # Add subdirectories to the tree
             for dir_path in directories:
@@ -198,7 +166,7 @@ class TreeFileManager:
                     dir_node = self.tree.insert(node_id, "end", iid=dir_path, text=dir_name, values=["folder"])
                     
                     # Add dummy node for lazy loading ONLY if relevant content exists inside
-                    if self._has_relevant_content(dir_path):
+                    if FileSystemScanner.has_relevant_content(dir_path):
                         self.tree.insert(dir_node, "end", text="dummy")
                         
                     self.id_to_path[dir_node] = dir_path
@@ -266,6 +234,11 @@ class TreeFileManager:
         # However, we only need to lookup ID if it exists.
         
         node_id = self.path_to_id.get(file_path)
+        if not node_id:
+            # Maybe it wasn't loaded yet?
+            self.refresh_folder(parent_dir)
+            node_id = self.path_to_id.get(file_path)
+
         if node_id:
             self.tree.selection_set(node_id)
             self.tree.focus(node_id)
@@ -299,13 +272,7 @@ class TreeFileManager:
             path = self.id_to_path.get(selected_id)
             if not path: continue
             
-            if os.path.isfile(path):
-                files.append(path)
-            elif os.path.isdir(path):
-                # Recursively get all files in the selected folder
-                for root, _, filenames in os.walk(path):
-                    for filename in filenames:
-                        if filename.lower().endswith((".csv", ".sav", ".txt", ".sps", ".spss")):
-                            files.append(os.path.join(root, filename))
+            found_files = FileSystemScanner.get_recursive_files(path)
+            files.extend(found_files)
         
         return sorted(list(set(files))) # Return unique, sorted files

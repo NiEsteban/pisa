@@ -2,7 +2,25 @@
 
 A modular, robust, and user-friendly pipeline for processing PISA (Programme for International Student Assessment) datasets. Designed for researchers and data scientists to easily standardize, clean, and transform educational data for analysis and machine learning.
 
-![App Screenshot Placeholder](https://via.placeholder.com/800x400?text=PISA+Pipeline+GUI)
+![App Screenshot Placeholder](docs/img/main_window.png)
+
+## ✨ Key Features
+- **Clean Architecture**: Modularity first, with strict separation between Logic and UI.
+- **Smart ID Detection**: Auto-detects Score/School/Student columns (with Lock option).
+- **Lazy Loading**: Handles giant file trees instantly without freezing.
+- **Thread-safe**: Long operations run in background; UI remains responsive.
+
+## 📸 Screenshots
+
+| **Main Interface** | **Data Cleaning** |
+|:---:|:---:|
+| ![Main Window](docs/img/main_window.png) | ![Cleaning Settings](docs/img/cleaning_tab.png) |
+| *Intuitive Tabbed Interface* | *Granular Threshold Controls* |
+
+| **Terminal Output** | **File Tree** |
+|:---:|:---:|
+| ![Console Log](docs/img/console_log.png) | ![File Tree](docs/img/file_tree.png) |
+| *Real-time Thread-safe Logging* | *Lazy-loaded Directory Store* |
 
 ---
 
@@ -140,7 +158,8 @@ This project uses a clean **Service-Oriented Architecture** with a strict separa
 
 -   **PipelineService**: The brain. Handles all data processing logic (loading, cleaning, transforming).
 -   **PipelineActions**: The bridge. Connects the GUI to the Service and manages background threads.
--   **ThreadSafeConsole**: The reporter. Ensures logs from background threads appear safely in the GUI.
+-   **Utils**: Shared logic for File Scanning and Thread-safe Logging.
+-   **ThreadSafeConsole**: The reporter. Uses the Logger utility to show logs safely in the GUI.
 
 For a technical deep dive, see [ARCHITECTURE.md](ARCHITECTURE.md).
 

@@ -33,8 +33,13 @@ class PipelineActions:
         return self.gui.file_manager.get_selected_files()
 
     def auto_detect_and_fill_ids(self, df: pd.DataFrame) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-        """Auto-detect IDs and populate GUI entries."""
+        """Auto-detect IDs and populate GUI entries (unless locked)."""
         auto_score, auto_school, auto_student = self.service.auto_detect_ids(df)
+
+        # Check if locked
+        if self.gui.ids_lock_var.get():
+             print(f"[PIPELINE] Auto-detect found: score={auto_score}, school={auto_school}, student={auto_student} (Ignored: Locked)")
+             return auto_score, auto_school, auto_student
 
         if auto_score:
             self.gui.entry_score.delete(0, "end")
@@ -48,6 +53,91 @@ class PipelineActions:
 
         print(f"[PIPELINE] Auto-detected: score={auto_score}, school={auto_school}, student={auto_student}")
         return auto_score, auto_school, auto_student
+
+    
+    def on_selection_change(self, files: List[str]) -> None:
+        """
+        Called when file selection changes in the GUI.
+        Auto-detects IDs based on selection (unless locked).
+        """
+        # If locked, do nothing
+        if self.gui.ids_lock_var.get():
+            return
+        
+        if not files:
+            return
+
+        # Helper to check if GUI fields are empty
+        def fields_are_empty() -> bool:
+            return (not self.gui.entry_score.get().strip() and 
+                    not self.gui.entry_school.get().strip() and 
+                    not self.gui.entry_student.get().strip())
+
+        # CASE 1: Single file (Always auto-detect/overwrite unless locked)
+        if len(files) == 1:
+            file_path = files[0]
+            if not os.path.isfile(file_path): return
+            if not file_path.lower().endswith((".csv", ".sav", ".txt")): return
+
+             # Run detection in thread to avoid blocking UI
+            def detect_single():
+                try:
+                    df = None
+                    if file_path in self.gui.file_results:
+                         fr = self.gui.file_results[file_path]
+                         df = next((v for v in [fr.get("cleaned"), fr.get("labeled"), fr.get("transformed")] if v is not None), None)
+                    
+                    if df is None:
+                        # Quick load (header only if CSV?)
+                        # For now, full load is safer for reliability, assuming files aren't massive.
+                        # Optimization: read only a few rows if possible.
+                         try:
+                            if file_path.lower().endswith(".csv"):
+                                df = pd.read_csv(file_path, encoding="cp1252", nrows=100)
+                            elif file_path.lower().endswith(".sav"):
+                                # SAV loader usually fast enough for metadata?
+                                from pisa_pipeline.data_processing.sav_loader import SAVloader
+                                loader = SAVloader()
+                                df, _ = loader.run(file_path, "UNK") # dummy code
+                         except:
+                             pass
+                    
+                    if df is not None:
+                        # Schedule GUI update on main thread
+                        self.gui.root.after(0, lambda: self.auto_detect_and_fill_ids(df))
+
+                except Exception as e:
+                    print(f"[WARN] Auto-detect failed for selection: {e}")
+
+            threading.Thread(target=detect_single, daemon=True).start()
+
+        # CASE 2: Multi file (Update ONLY if fields are empty)
+        else:
+            if fields_are_empty():
+                 # We need to find "Best" IDs common to files?
+                 # Strategy: Just pick the first file's IDs for now, or true intersection?
+                 # User said: "check the best autoselection". 
+                 # Let's try to detect from the first valid file to fill the empty fields.
+                 
+                def detect_multi():
+                    try:
+                        # Find first valid file
+                         for file_path in files:
+                            if not os.path.isfile(file_path): continue
+                            
+                            df = None
+                            if file_path.lower().endswith(".csv"):
+                                df = pd.read_csv(file_path, encoding="cp1252", nrows=50)
+                            elif file_path.lower().endswith(".sav"):
+                                continue # processing multiple SAVs just for preview might be slow
+                            
+                            if df is not None:
+                                self.gui.root.after(0, lambda: self.auto_detect_and_fill_ids(df))
+                                break # Stop after finding one valid set
+
+                    except: pass
+                
+                threading.Thread(target=detect_multi, daemon=True).start()
 
     def action_drop_columns(self) -> None:
         """Drop checked columns from the currently selected file(s)."""
