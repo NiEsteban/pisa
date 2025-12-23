@@ -1,7 +1,9 @@
 import os
 import re
 import pandas as pd
+from typing import Tuple, Optional
 from pisa_pipeline.utils.file_utils import read_lines, extract_data_file_path
+from pisa_pipeline.infrastructure.interfaces import IDataLoader
 
 
 class Column:
@@ -17,9 +19,9 @@ class Column:
         return f"{self.label or self.name}"
 
 
-class SPSSloader:
+class SPSSLoader(IDataLoader):
     def __init__(self):
-        """Empty constructor; syntax file is provided in run()"""
+        """Empty constructor; syntax file is provided in load()"""
         self.syntax_file = None
         self.data_folder = None
         self.columns = {}
@@ -90,11 +92,44 @@ class SPSSloader:
                     continue
                 parts = line.split(" ", 1)
                 if len(parts) == 2:
-                    val, label = parts
-                    label = label.replace('"', '').replace("'", "").strip()
-                    for c in current_columns:
-                        if c in self.columns:
-                            self.columns[c].answer[val] = label
+                    current_columns = line.split("/")[1].strip().upper().split() if line.startswith("/") else current_columns # Re-evaluate if needed, but logic above handles '/'
+                    # Re-reading logic. The original logic was:
+                    # if line.startswith("/")... continue.
+                    # This block is inside 'if value_label_section'.
+                    # It seems correct to keep original logic.
+                    pass 
+                
+        # To be safe, I will copy the original method body exactly, 
+        # just wrapped in this class.
+        pass
+
+    # Rethinking `_parse_value_labels` copy-paste, let's do it carefully from the read file.
+    # The read file had:
+    # def _parse_value_labels(self):
+    #     value_label_section = False
+    #     current_columns = []
+    #     for line in self._lines:
+    #         if line.startswith("value labels"):
+    #             value_label_section = True
+    #             continue
+    #         if value_label_section:
+    #             if line.startswith("."):
+    #                 value_label_section = False
+    #                 continue
+    #             if line.startswith("/") and not line.startswith("//"):
+    #                 current_columns = line.split("/")[1].strip().upper().split()
+    #                 continue
+    #             if not line:
+    #                 continue
+    #             parts = line.split(" ", 1)
+    #             if len(parts) == 2:
+    #                 val, label = parts
+    #                 label = label.replace('"', '').replace("'", "").strip()
+    #                 for c in current_columns:
+    #                     if c in self.columns:
+    #                         self.columns[c].answer[val] = label
+    
+    # Redoing it in the content block below.
 
     def parse_syntax(self):
         """Parse syntax and prepare columns"""
@@ -115,6 +150,7 @@ class SPSSloader:
 
     def load_data(self, country_code="MEX"):
         rows = []
+        # Error handling for encoding can be added, but adhering to original
         for line in open(self.data_file, "r", encoding="cp1252"):
             if country_code and not line.startswith(country_code):
                 continue
@@ -125,19 +161,15 @@ class SPSSloader:
         print(f"[LOADER] Loaded {len(df)} rows for country code '{country_code}'")
         return df
 
-    # --- Run single file ---
-    def run(self, syntax_file, data_folder=None, country_code="MEX"):
+    # --- Run single file (Implementation of IDataLoader) ---
+    def load(self, path: str, data_folder=None, country_code="MEX", **kwargs) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
         """
-        Run loader for a single syntax file.
-
-        1. Extracted CSV (MEX rows, no labels) in `extract_folder`
-        2. Labeled CSV (MEX rows with labels) in `labeled_folder`
+        Load legacy SPSS syntax/data files.
         """
-        # Set paths
         
-        print(f"[LOADER] Loading file {syntax_file} using code:{country_code}")
-        self.syntax_file = syntax_file
-        self.data_folder = data_folder or os.path.dirname(syntax_file)
+        print(f"[LOADER] Loading file {path} using code:{country_code}")
+        self.syntax_file = path
+        self.data_folder = data_folder or os.path.dirname(path)
 
         # Parse syntax
         self.parse_syntax()
@@ -151,6 +183,29 @@ class SPSSloader:
         # --- Apply labels and save labeled CSV ---
         df_labeled = self.apply_labels(df)
 
-
-
-        return df_labeled,df
+        return df_labeled, df
+    
+    # Adding back the missing method body for _parse_value_labels properly
+    def _parse_value_labels(self):
+        value_label_section = False
+        current_columns = []
+        for line in self._lines:
+            if line.startswith("value labels"):
+                value_label_section = True
+                continue
+            if value_label_section:
+                if line.startswith("."):
+                    value_label_section = False
+                    continue
+                if line.startswith("/") and not line.startswith("//"):
+                    current_columns = line.split("/")[1].strip().upper().split()
+                    continue
+                if not line:
+                    continue
+                parts = line.split(" ", 1)
+                if len(parts) == 2:
+                    val, label = parts
+                    label = label.replace('"', '').replace("'", "").strip()
+                    for c in current_columns:
+                        if c in self.columns:
+                            self.columns[c].answer[val] = label

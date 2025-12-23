@@ -53,10 +53,11 @@ class StepwisePipelineGUI:
     def _init_process_data_tab(self) -> None:
         """Initialize the Process Data tab"""
         # State variables - initialize BEFORE creating sub-components
-        self.selected_folder: Optional[str] = None
-        self.selected_files: List[str] = []
-        self.file_results: Dict[str, Dict[str, pd.DataFrame]] = {}
-        self.columns_to_drop_map: Dict[str, Set[str]] = {}
+        # MOVED TO CONTROLLER CONTEXT:
+        # self.selected_folder: Optional[str] = None
+        # self.selected_files: List[str] = []
+        # self.file_results: Dict[str, Dict[str, pd.DataFrame]] = {}
+        # self.columns_to_drop_map: Dict[str, Set[str]] = {}
 
         # UI variables
         self.path_var = tk.StringVar()
@@ -87,13 +88,17 @@ class StepwisePipelineGUI:
         self._setup_main_pane(self.tab_process_data)
         self._setup_bottom_frame(self.tab_process_data)
 
-        # Import sub-components AFTER all widgets are created
         from pisa_pipeline.gui.column_display import ColumnDisplay
-        from pisa_pipeline.gui.pipeline_actions import PipelineActions
+        from pisa_pipeline.controller.pipeline_controller import PipelineController
+        from pisa_pipeline.gui.tree_file_manager import TreeFileManager
 
         # Initialize sub-components
         self.column_display = ColumnDisplay(self)
-        self.pipeline_actions = PipelineActions(self)
+
+        
+        # Controller
+        self.controller = PipelineController(self)
+        # self.pipeline_actions = self.controller # Alias if needed during transition, but better to update all references.
 
     def _init_process_results_tab(self) -> None:
         """Initialize the Process Results tab"""
@@ -202,7 +207,7 @@ class StepwisePipelineGUI:
                 self.column_display.display_columns_for_file(None)
             
             # TRIGGER ID DETECTION LOGIC
-            self.pipeline_actions.on_selection_change(selected_files)
+            self.controller.on_selection_change(selected_files)
         
         self.file_tree.bind("<<TreeviewSelect>>", on_tree_select)
 
@@ -230,7 +235,7 @@ class StepwisePipelineGUI:
         self.btn_undo_drop = ttk.Button(
             header_frame,
             text="Undo Last Drop",
-            command=lambda: self.pipeline_actions.action_undo_last_drop()
+            command=lambda: self.controller.action_undo_last_drop()
         )
         self.btn_undo_drop.pack(side="left", padx=10)
 
@@ -469,7 +474,7 @@ class StepwisePipelineGUI:
 
     def _setup_output_redirection(self) -> None:
         """Setup intelligent output redirection based on active tab"""
-        from pisa_pipeline.gui.thread_safe_console import ThreadSafeConsole
+        from pisa_pipeline.infrastructure.thread_safe_console import ThreadSafeConsole
         
         console = ThreadSafeConsole()
         

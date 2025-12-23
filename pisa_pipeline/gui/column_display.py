@@ -55,8 +55,8 @@ class ColumnDisplay:
             return
 
         # Initialize columns_to_drop set if not exists
-        if file_path not in self.gui.columns_to_drop_map:
-            self.gui.columns_to_drop_map[file_path] = set()
+        if file_path not in self.gui.controller.context.columns_to_drop_map:
+            self.gui.controller.context.columns_to_drop_map[file_path] = set()
 
         # Display columns with index numbers
         for idx, col in enumerate(df.columns):
@@ -86,7 +86,7 @@ class ColumnDisplay:
         index_label.pack(side="left", padx=(5, 5))
 
         # Checkbox for dropping
-        var = tk.BooleanVar(value=column_name in self.gui.columns_to_drop_map[file_path])
+        var = tk.BooleanVar(value=column_name in self.gui.controller.context.columns_to_drop_map[file_path])
         self.column_vars[column_name] = var
 
         chk = ttk.Checkbutton(
@@ -121,9 +121,9 @@ class ColumnDisplay:
     def _toggle_drop_column(self, file_path: str, column_name: str):
         """Toggle column in the drop list"""
         if self.column_vars[column_name].get():
-            self.gui.columns_to_drop_map[file_path].add(column_name)
+            self.gui.controller.context.columns_to_drop_map[file_path].add(column_name)
         else:
-            self.gui.columns_to_drop_map[file_path].discard(column_name)
+            self.gui.controller.context.columns_to_drop_map[file_path].discard(column_name)
 
     def _show_column_stats(self, file_path: str, column_name: str, df: pd.DataFrame):
         """
@@ -177,7 +177,7 @@ class ColumnDisplay:
         if not file_path:
             return None
             
-        file_results = self.gui.file_results.get(file_path, {})
+        file_results = self.gui.controller.context.file_results.get(file_path, {})
         
         # Try to get from memory (prioritize transformed > cleaned > labeled)
         for key in ["transformed", "cleaned", "labeled"]:

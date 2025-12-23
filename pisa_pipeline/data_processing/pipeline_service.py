@@ -2,7 +2,7 @@ import os
 import shutil
 import pandas as pd
 from typing import List, Tuple, Optional, Dict, Union, Set
-from pisa_pipeline.data_processing.sav_loader import SAVloader
+from pisa_pipeline.infrastructure.sav_loader import SAVLoader
 from pisa_pipeline.data_processing.cleaner import CSVCleaner
 from pisa_pipeline.data_processing.transformer import Transformer
 from pisa_pipeline.utils.io import save_dataframe_to_csv
@@ -56,9 +56,9 @@ class PipelineService:
         Returns dictionary of created files map: {path: dataframe, ...}
         """
         if file_path.lower().endswith((".sps", ".spss")):
-            from pisa_pipeline.data_processing.spss_loader import SPSSloader
-            loader = SPSSloader()
-            df_labeled, df_unlabeled = loader.run(file_path, country_code=country_code)
+            from pisa_pipeline.infrastructure.spss_loader import SPSSLoader
+            loader = SPSSLoader()
+            df_labeled, df_unlabeled = loader.load(file_path, country_code=country_code)
         elif file_path.lower().endswith(".txt"):
             # Check if it is a syntax file disguised as .txt
             try:
@@ -66,9 +66,9 @@ class PipelineService:
                     head = f.read(2048).upper()
                     if "DATA LIST" in head or "VARIABLE LABELS" in head:
                         print(f"[INFO] Detected SPSS Syntax in .txt file: {os.path.basename(file_path)}")
-                        from pisa_pipeline.data_processing.spss_loader import SPSSloader
-                        loader = SPSSloader()
-                        df_labeled, df_unlabeled = loader.run(file_path, country_code=country_code)
+                        from pisa_pipeline.infrastructure.spss_loader import SPSSLoader
+                        loader = SPSSLoader()
+                        df_labeled, df_unlabeled = loader.load(file_path, country_code=country_code)
                     else:
                         print(f"[WARN] Input file {os.path.basename(file_path)} is a text file but does not look like SPSS Syntax.")
                         return {}
@@ -76,8 +76,8 @@ class PipelineService:
                 print(f"[ERROR] Failed to inspect .txt file {file_path}: {e}")
                 return {}
         else:
-            loader = SAVloader()
-            df_labeled, df_unlabeled = loader.run(file_path, country_code)
+            loader = SAVLoader()
+            df_labeled, df_unlabeled = loader.load(file_path, country_code=country_code)
 
         if df_labeled is None:
             return {}

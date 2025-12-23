@@ -3,7 +3,6 @@ import os
 import tkinter as tk
 from tkinter import ttk, filedialog
 from typing import TYPE_CHECKING, List, Set
-from pisa_pipeline.utils.file_scanner import FileSystemScanner
 
 if TYPE_CHECKING:
     from pisa_pipeline.gui.main_window import StepwisePipelineGUI
@@ -45,7 +44,7 @@ class TreeFileManager:
         # Clear existing
         self.clear_selection()
         
-        self.gui.selected_folder = folder
+        self.gui.controller.context.selected_folder = folder
         self.gui.path_var.set(folder)
         
         # Populate root
@@ -60,7 +59,7 @@ class TreeFileManager:
             return
             
         parent_dir = os.path.dirname(files[0])
-        self.gui.selected_folder = parent_dir
+        self.gui.controller.context.selected_folder = parent_dir
         self.gui.path_var.set(parent_dir)
         self.clear_selection()
         
@@ -76,131 +75,21 @@ class TreeFileManager:
         self.path_to_id.clear()
         self.gui.column_display.display_columns_for_file(None)
 
-    def _populate_node(self, parent_id, path, is_root=False):
-        """Populate tree node. If key 'lazy' is used, purely add dummy."""
-        try:
-            # Display name
-            display_name = os.path.basename(path)
-            if not display_name: display_name = path 
-            
-            # Skip unwanted folders
-            # if display_name.lower() in ["results", "resultados", "__pycache__", ".git"]:
-            #     # Unless it's the root we explicitly asked for
-            #     if not is_root:
-            #         return
-
-            # Create node
-            # Use path as ID to simplify lookups
-            if self.tree.exists(path):
-                # If it exists, maybe we are refreshing? 
-                # Just ensure it's visible?
-                node_id = path
-            else:
-                node_id = self.tree.insert(parent_id, "end", iid=path, text=display_name, values=["folder"])
-            
-            self.id_to_path[node_id] = path
-            self.path_to_id[path] = node_id
-
-            # Check if it has relevant content to decide on dummy
-            if os.path.isdir(path):
-                # Add dummy child ONLY if it has relevant content (peek)
-                if not self.tree.get_children(node_id):
-                    if FileSystemScanner.has_relevant_content(path):
-                        self.tree.insert(node_id, "end", text="dummy")
-            
-            # If root, we must expand it immediately
-            if is_root:
-                self.tree.item(node_id, open=True)
-                self._populate_node_children(node_id, path)
-
-        except PermissionError:
-            pass
-        except Exception as e:
-            print(f"Error listing {path}: {e}")
-
-    def _on_tree_open(self, event):
-        """Handle node expansion"""
-        # robustly find the item
-        try:
-            item_id = self.tree.focus()
-            if not item_id:
-                # Try selection
-                sel = self.tree.selection()
-                if sel: item_id = sel[0]
-            
-            if not item_id: return
-
-            # Verify it's the one expanding? 
-            # Tkinter doesn't tell us easily. But typically user clicks the one gaining focus.
-            
-            # Check for dummy
-            children = self.tree.get_children(item_id)
-            if children and self.tree.item(children[0], "text") == "dummy":
-                # Remove dummy
-                self.tree.delete(children[0])
-                
-                # Populate real contents
-                path = self.id_to_path.get(item_id)
-                if path:
-                    self._populate_node_children(item_id, path)
-        except Exception as e:
-            print(f"Error on tree open: {e}")
-
-    def _populate_node_children(self, node_id, parent_path):
-        """
-        Populates the children of a specific tree node by listing the file system.
-        Filters out system folders and unwanted file types.
-        
-        Args:
-            node_id: The ID of the tree node to populate.
-            parent_path: The file system path corresponding to this node.
-        """
-        try:
-             # List contents
-            directories, files_list = FileSystemScanner.scan_directory(parent_path)
-            
-            # Add subdirectories to the tree
-            for dir_path in directories:
-                dir_name = os.path.basename(dir_path)
-                if not self.tree.exists(dir_path):
-                    dir_node = self.tree.insert(node_id, "end", iid=dir_path, text=dir_name, values=["folder"])
-                    
-                    # Add dummy node for lazy loading ONLY if relevant content exists inside
-                    if FileSystemScanner.has_relevant_content(dir_path):
-                        self.tree.insert(dir_node, "end", text="dummy")
-                        
-                    self.id_to_path[dir_node] = dir_path
-                    self.path_to_id[dir_path] = dir_node
-
-            # Add files to the tree
-            for file_path in files_list:
-                file_name = os.path.basename(file_path)
-                if not self.tree.exists(file_path):
-                    self.tree.insert(node_id, "end", iid=file_path, text=file_name, values=["file"])
-                    self.id_to_path[file_path] = file_path
-                    self.path_to_id[file_path] = file_path
-                    
-        except Exception as error:
-            print(f"Error expanding {parent_path}: {error}")
-
     def refresh_folder(self, folder_path: str) -> None:
-        """
-        Refreshes a specific folder node in the tree to show new files.
-        Useful when a pipeline step creates new output files.
-        """
-        # 1. Find existing node for this folder
-        if not os.path.exists(folder_path): return
-        
+        """Refresh a specific folder node in the tree."""
+        if not folder_path: return
+
+        # 1. Find the node ID for this path
         node_id = self.path_to_id.get(folder_path)
         
-        # If not found, recursively check parent (maybe parent needs refresh first)
+        # If not found, maybe we are inside the root but it wasn't expanded yet?
         if not node_id:
-            parent_dir = os.path.dirname(folder_path)
-            if self.path_to_id.get(parent_dir):
-                return self.refresh_folder(parent_dir)
-            elif self.gui.selected_folder and folder_path.startswith(self.gui.selected_folder):
+            # If the path is the root itself or inside it
+            if self.gui.controller.context.selected_folder and folder_path == self.gui.controller.context.selected_folder:
+                 self.browse_folder_manual(folder_path)
+            elif self.gui.controller.context.selected_folder and folder_path.startswith(self.gui.controller.context.selected_folder):
                  # Fallback: reload entire root if we are inside the selection but lost track
-                 self.browse_folder_manual(self.gui.selected_folder)
+                 self.browse_folder_manual(self.gui.controller.context.selected_folder)
             return
 
         # 2. If node found, refresh its children
@@ -220,6 +109,9 @@ class TreeFileManager:
             # Restore expansion state or force open to show new files
             if was_open:
                 self.tree.item(node_id, open=True)
+    
+
+
 
     def select_file(self, file_path: str) -> None:
         """
@@ -272,7 +164,71 @@ class TreeFileManager:
             path = self.id_to_path.get(selected_id)
             if not path: continue
             
-            found_files = FileSystemScanner.get_recursive_files(path)
+            # Delegate to Controller for proper layer separation
+            found_files = self.gui.controller.get_files_for_path(path)
             files.extend(found_files)
         
         return sorted(list(set(files))) # Return unique, sorted files
+
+    def _on_tree_open(self, event):
+        """Handler for tree node expansion lazy loading"""
+        item_id = self.tree.focus()
+        if not item_id:
+             # Sometimes focus isn't set on open via icon click?
+             # Try selection
+             sel = self.tree.selection()
+             if sel: item_id = sel[0]
+        
+        path = self.id_to_path.get(item_id)
+        if path and os.path.isdir(path):
+            # If it has a dummy child, refresh it
+            children = self.tree.get_children(item_id)
+            if len(children) == 1 and self.tree.item(children[0], "text") == "dummy":
+                self.tree.delete(children[0])
+                self._populate_node_children(item_id, path)
+
+    def _populate_node(self, parent_id, path, is_root=False):
+        """Populate a single node item."""
+        name = os.path.basename(path) if not is_root else path
+        
+        # Decide icon/style based on type
+        # For now just text
+        
+        if is_root:
+            node_id = self.tree.insert(parent_id, "end", text=name, open=True)
+            self._populate_node_children(node_id, path)
+        else:
+            # If directory, add dummy child for lazy loading
+            if os.path.isdir(path):
+                node_id = self.tree.insert(parent_id, "end", text=name, open=False)
+                # Add dummy
+                self.tree.insert(node_id, "end", text="dummy")
+            else:
+                 node_id = self.tree.insert(parent_id, "end", text=name)
+        
+        self.id_to_path[node_id] = path
+        self.path_to_id[path] = node_id
+        return node_id
+
+    def _populate_node_children(self, parent_id, parent_path):
+        """Populate children of a directory node."""
+        try:
+            # List dirs and files
+             items = os.listdir(parent_path)
+             # Sort: folders first, then files
+             items.sort(key=lambda x: (not os.path.isdir(os.path.join(parent_path, x)), x.lower()))
+             
+             for item in items:
+                 item_path = os.path.join(parent_path, item)
+                 
+                 # Filtering hidden files or irrelevant extensions
+                 if item.startswith('.'): continue
+                 if os.path.isfile(item_path):
+                     if not item.lower().endswith(('.csv', '.sav', '.sps', '.txt')):
+                         continue
+                 
+                 self._populate_node(parent_id, item_path, is_root=False)
+                 
+        except PermissionError:
+             pass 
+

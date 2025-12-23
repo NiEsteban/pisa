@@ -1,10 +1,11 @@
 import os
 import pandas as pd
 import pyreadstat
+from typing import Tuple, Optional
 from pisa_pipeline.utils.io import load_sav_metadata
+from pisa_pipeline.infrastructure.interfaces import IDataLoader
 
-
-class SAVloader:
+class SAVLoader(IDataLoader):
     def __init__(self, chunksize=100000):
         self.country_code = None
         self.chunksize = chunksize
@@ -86,16 +87,22 @@ class SAVloader:
         return df_labeled
 
     # -------------------------
-    # Main run method for one file
+    # Main load method (Implementation of IDataLoader)
     # -------------------------
-    def run(self, sav_file,country_code="MEX"):
-        print(f"[LOADER] Loading file {sav_file} using code:{country_code}")
-        self.country_code= country_code.upper()
+    def load(self, path: str, country_code="MEX", **kwargs) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
+        """
+        Load a SAV file.
+        Returns (df_labeled, df_raw).
+        """
+        print(f"[LOADER] Loading file {path} using code:{country_code}")
+        self.country_code = country_code.upper()
+        
         # Extract country rows
-        df = self.extract_country_csv(sav_file)
+        df = self.extract_country_csv(path)
         if df is None:
             return None, None
+            
         # Apply labels
-        df_labeled = self.label_csv_with_sav(df, sav_file)
+        df_labeled = self.label_csv_with_sav(df, path)
 
-        return df_labeled,df
+        return df_labeled, df

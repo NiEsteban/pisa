@@ -5,20 +5,26 @@ from typing import TYPE_CHECKING, List, Tuple, Optional, Dict
 import pandas as pd
 
 from pisa_pipeline.data_processing.pipeline_service import PipelineService
+from pisa_pipeline.infrastructure.sav_loader import SAVLoader
+from pisa_pipeline.controller.context import PipelineContext
+from pisa_pipeline.utils.file_scanner import FileSystemScanner
 
 if TYPE_CHECKING:
     from pisa_pipeline.gui.main_window import StepwisePipelineGUI
 
-class PipelineActions:
+
+class PipelineController:
     """
     Handles all pipeline actions (Load, Clean, Transform) via the GUI.
     Delegates core logic to PipelineService.
     Responsible for Threading and UI Updates.
+    Owns the Application State (Context).
     """
 
     def __init__(self, gui: "StepwisePipelineGUI"):
         self.gui = gui
         self.service = PipelineService()
+        self.context = PipelineContext()
 
         # Connect button commands
         self.gui.btn_load_label.config(command=self.action_load_label)
@@ -31,6 +37,15 @@ class PipelineActions:
     def _get_files_to_process(self) -> List[str]:
         """Get list of files to process based on selection"""
         return self.gui.file_manager.get_selected_files()
+
+    def get_files_for_path(self, path: str) -> List[str]:
+        """
+        Get supported files for a given path (file or directory).
+        Delegates to Infrastructure layer FileSystemScanner.
+        Used by View components to maintain proper layer separation.
+        """
+        return FileSystemScanner.get_recursive_files(path)
+
 
     def auto_detect_and_fill_ids(self, df: pd.DataFrame) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """Auto-detect IDs and populate GUI entries (unless locked)."""
@@ -83,8 +98,8 @@ class PipelineActions:
             def detect_single():
                 try:
                     df = None
-                    if file_path in self.gui.file_results:
-                         fr = self.gui.file_results[file_path]
+                    if file_path in self.context.file_results:
+                         fr = self.context.file_results[file_path]
                          df = next((v for v in [fr.get("cleaned"), fr.get("labeled"), fr.get("transformed")] if v is not None), None)
                     
                     if df is None:
@@ -96,9 +111,9 @@ class PipelineActions:
                                 df = pd.read_csv(file_path, encoding="cp1252", nrows=100)
                             elif file_path.lower().endswith(".sav"):
                                 # SAV loader usually fast enough for metadata?
-                                from pisa_pipeline.data_processing.sav_loader import SAVloader
-                                loader = SAVloader()
-                                df, _ = loader.run(file_path, "UNK") # dummy code
+                                from pisa_pipeline.infrastructure.sav_loader import SAVLoader
+                                loader = SAVLoader()
+                                df, _ = loader.load(file_path, "UNK") # dummy code
                          except:
                              pass
                     
@@ -150,7 +165,7 @@ class PipelineActions:
             for file_path in files:
                 try:
                     # Get the dataframe
-                    fr = self.gui.file_results.get(file_path, {})
+                    fr = self.context.file_results.get(file_path, {})
                     df = next((v for v in [fr.get("transformed"), fr.get("cleaned"), fr.get("labeled")] if v is not None), None)
                     
                     if df is None:
@@ -169,7 +184,7 @@ class PipelineActions:
                             continue
 
                     # Get columns to drop
-                    cols_to_drop = self.gui.columns_to_drop_map.get(file_path, set())
+                    cols_to_drop = self.context.columns_to_drop_map.get(file_path, set())
                     if not cols_to_drop:
                         print(f"[PIPELINE] No columns marked for dropping in {os.path.basename(file_path)}")
                         continue
@@ -186,16 +201,16 @@ class PipelineActions:
                     self.last_backup = (file_path, backup_path)
 
                     # Update GUI state
-                    fr = self.gui.file_results.get(file_path, {})
-                    self.gui.file_results[file_path] = {
+                    fr = self.context.file_results.get(file_path, {})
+                    self.context.file_results[file_path] = {
                         "transformed": df_dropped if "transformed" in fr else None,
                         "cleaned": df_dropped if "cleaned" in fr else None,
                         "labeled": df_dropped if "labeled" in fr else None
                     }
                     
                     # Clear drop map
-                    if file_path in self.gui.columns_to_drop_map:
-                        del self.gui.columns_to_drop_map[file_path]
+                    if file_path in self.context.columns_to_drop_map:
+                        del self.context.columns_to_drop_map[file_path]
 
                     # Refresh UI
                     self.gui.file_manager.refresh_folder(os.path.dirname(file_path))
@@ -269,10 +284,10 @@ class PipelineActions:
         for file_path in input_files:
             file_extension = file_path.lower()
             
-            # Allow .txt to pass if it contains syntax, otherwise filter
-            if file_extension.endswith(".txt"):
-                print(f"[HINT] Found .txt file: {os.path.basename(file_path)}. Please select the corresponding (.sps) syntax file to load it.")
-                continue
+            # Allow .txt to pass; Service will check if it is syntax or data.
+            # if file_extension.endswith(".txt"):
+            #    # print(f"[HINT] Found .txt file: {os.path.basename(file_path)}. Please select the corresponding (.sps) syntax file to load it.")
+            #    # continue
 
             if not file_extension.endswith((".sav", ".sps", ".spss")):
                 continue
@@ -291,7 +306,7 @@ class PipelineActions:
                     labeled_files_output.append(output_path)
                     
                     # Update GUI state
-                    self.gui.file_results[output_path] = {"labeled": labeled_dataframe}
+                    self.context.file_results[output_path] = {"labeled": labeled_dataframe}
                     
                     # Refresh file tree
                     parent_directory = os.path.dirname(output_path)
@@ -338,7 +353,7 @@ class PipelineActions:
 
             try:
                 # 1. Resolve dataframe (from memory or disk)
-                file_record = self.gui.file_results.get(file_path, {})
+                file_record = self.context.file_results.get(file_path, {})
                 dataframe = next(
                     (v for v in [file_record.get("cleaned"), file_record.get("labeled"), file_record.get("transformed")] if v is not None), 
                     None
@@ -393,7 +408,7 @@ class PipelineActions:
                 
                 if result:
                     output_path, cleaned_dataframe = result
-                    self.gui.file_results[output_path] = {"cleaned": cleaned_dataframe}
+                    self.context.file_results[output_path] = {"cleaned": cleaned_dataframe}
                     cleaned_files_output.append(output_path)
                     
                     self.gui.file_manager.refresh_folder(os.path.dirname(output_path))
@@ -424,7 +439,7 @@ class PipelineActions:
             if "leveled" in file_path: continue
 
             try:
-                file_record = self.gui.file_results.get(file_path, {})
+                file_record = self.context.file_results.get(file_path, {})
                 dataframe = file_record.get("cleaned")
                 
                 # If not in memory, try loading from disk
@@ -497,7 +512,7 @@ class PipelineActions:
         )
         
         for output_path, transformed_df in results_map.items():
-            self.gui.file_results[output_path] = {"transformed": transformed_df}
+            self.context.file_results[output_path] = {"transformed": transformed_df}
             self.gui.file_manager.refresh_folder(os.path.dirname(output_path))
             
             def update_ui_transform(path=output_path):
@@ -525,7 +540,7 @@ class PipelineActions:
         """Button callback: Transform"""
         files = self._get_files_to_process()
         if not files: # Fallback to looking for cleaned files
-             files = [p for p, v in self.gui.file_results.items() if "cleaned" in v]
+             files = [p for p, v in self.context.file_results.items() if "cleaned" in v]
         
         if not files:
             print("[WARN] No files selected or available for transform.")

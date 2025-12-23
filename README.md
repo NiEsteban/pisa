@@ -5,21 +5,23 @@ A modular, robust, and user-friendly pipeline for processing PISA (Programme for
 ![App Screenshot Placeholder](docs/img/main_window.png)
 
 ## ✨ Key Features
-- **Clean Architecture**: Modularity first, with strict separation between Logic and UI.
+- **Two-Tab Interface**: "Process Data" for cleaning raw files, "Process Results" for analyzing feature selection outputs.
 - **Smart ID Detection**: Auto-detects Score/School/Student columns (with Lock option).
 - **Lazy Loading**: Handles giant file trees instantly without freezing.
 - **Thread-safe**: Long operations run in background; UI remains responsive.
 
+---
+
 ## 📸 Screenshots
 
-| **Main Interface** | **Data Cleaning** |
+| **Main Interface** | **Settings** |
 |:---:|:---:|
-| ![Main Window](docs/img/main_window.png) | ![Cleaning Settings](docs/img/cleaning_tab.png) |
+| ![Main Window](img/main_window.png) | ![Settings](img/settings_tab.png) |
 | *Intuitive Tabbed Interface* | *Granular Threshold Controls* |
 
 | **Terminal Output** | **File Tree** |
 |:---:|:---:|
-| ![Console Log](docs/img/console_log.png) | ![File Tree](docs/img/file_tree.png) |
+| ![Console Log](img/console_log.png) | ![File Tree](img/file_tree.png) |
 | *Real-time Thread-safe Logging* | *Lazy-loaded Directory Store* |
 
 ---
@@ -51,70 +53,121 @@ python script.py -f "raw_data" -mt 0.2 -ut 0.1 -ct 0.95 -sd
 
 ---
 
-## 🛠️ Exhaustive GUI User Guide
+## 🛠️ GUI User Guide
 
 Launch the app with:
 ```bash
 python main.py
 ```
 
-### 1. File Selection & Navigation
-You can process data in two ways:
--   **Folder Mode**: Select a root folder (e.g., `2015/`). The app will intelligently find all relevant files inside it.
--   **File Mode**: Select specific files (Ctrl+Click or Shift+Click) in the file tree to process only those.
+The application has **two main tabs**:
 
-**Supported Formats:**
--   **Modern PISA**: `.sav` (SPSS Data Files).
--   **Legacy PISA (e.g., 2012)**: `.sps` (SPSS Syntax Files) paired with `.txt` data files.
-    *   *Note: If you have a `.txt` data file, please select the corresponding `.sps` syntax file to load it correctly.*
--   **Processed Data**: `.csv` (Comma Separated Values).
+---
 
-### 2. Step 1: Load & Label
-**Goal:** Convert raw binary data into human-readable CSVs.
-> **⚠️ IMPORTANT:** You must always run this step first for new raw data.
+### TAB 1: Process Data
 
--   **How to run:**
-    1.  Select your raw data folder or specific `.sav`/`.sps` files.
-    2.  Enter the **Country Code** (e.g., `MEX`) in the settings panel.
-    3.  Click **"Load & Label"**.
--   **What happens:**
-    -   Reads the raw file (handling both `.sav` and `.txt`+`.sps`).
-    -   Filters only the rows for your selected country.
-    -   Decodes all metadata (e.g., converts `1` → `Female`, `2` → `Male`).
-    -   **Output:** Creates a `labeled/` folder containing the decoded CSVs.
+This tab handles the full ETL (Extract, Transform, Load) pipeline for raw PISA files.
 
-### 3. Step 2: Clean
-**Goal:** Improve data quality by removing garbage columns.
-> **⚠️ INFO:** Operates on the CSV files generated in Step 1.
+#### 1.1. Top Toolbar
+| Button | What it does |
+|---|---|
+| **Select Folder** | Opens a folder containing PISA data (e.g., `2015/`). The app recursively finds all relevant files. |
+| **Select Files** | Opens a file dialog to manually select specific `.sav`, `.sps`, or `.csv` files. |
+| **Clear Selection** | Deselects all currently selected files in the tree view. |
 
--   **Settings:**
-    -   **Missing Threshold (0-1)**: Drop columns that are mostly empty (e.g., `0.9` drops columns with >90% missing data).
-    -   **Uniform Threshold (0-1)**: Drop columns where everyone has the same answer (e.g., `0.95` drops if >95% values are identical).
-    -   **Correlation Threshold (0-1)**: Drop columns that are redundant/duplicates (e.g., `0.99` drops one of a pair if they are 99% correlated).
--   **Output:** Creates a `cleaned/` folder with the refined datasets.
+#### 1.2. File Tree (Left Panel)
+- Displays all files and folders under your selected path.
+- Supports **multi-select** (Ctrl+Click or Shift+Click).
+- Double-click any CSV to preview its **columns** in the center panel.
 
-### 4. Step 3: Transform
-**Goal:** Create the final "Master Table" for Machine Learning.
-> **⚠️ INFO:** this leverages the cleaned files to merge students with their schools.
+#### 1.3. Column Display (Center Panel)
+- Shows the list of columns for the currently selected file.
+- **Checkboxes**: Mark any column you want to remove.
+- **Drop Checked Columns**: Deletes the marked columns from the file and saves a backup.
+- **Undo Last Drop**: Restores the file to its state before the last drop (uses the `.backups/` folder).
 
--   **How to run:**
-    1.  Ensure you have processed Student (`STU`) and School (`SCH`) files.
-    2.  (Optional) Verify the detected **ID Columns** (Student, School, Score) in the inputs are correct.
-    3.  Click **"Transform"**.
--   **What happens:**
-    -   **Merging**: Matches every Student to their School using the `School ID`.
-    -   **Leveling**: Converts numerical scores into PISA Proficiency Levels (e.g., `Level 2`, `Level 3`).
-    -   **Splitting (Optional)**: If checked, splits the dataset based on your ranges.
--   **Output:** Creates a `leveled/` folder with the final merged CSV.
+#### 1.4. Actions Panel (Right Side)
 
-### 5. Review & Manual Refinement
-**Goal:** Inspect your data and manually drop specific columns.
--   **Visualizing**: Double-click ANY file in the tree (raw or processed) to see its columns in the right panel.
--   **Manual Drop**:
-    1.  Check the boxes next to the columns you want to remove.
-    2.  Click **"Drop Checked Columns"**.
-    3.  The file is updated immediately.
--   **Undo**: Made a mistake? Click **"Undo Last Drop"** to restore the file instantly.
+##### Detected / Edit IDs
+| Field | Description |
+|---|---|
+| **Score column** | The column containing math scores (e.g., `PV1MATH`). Auto-detected, but editable. |
+| **School ID** | The column linking students to schools (e.g., `CNTSCHID`). |
+| **Student ID** | The column uniquely identifying students (e.g., `CNTSTUID`). |
+| **Lock Auto-Detect** | If checked, the app will NOT overwrite your manual entries when you select new files. |
+
+##### Step 1: Load & Label
+Converts raw SPSS (`.sav`) or legacy (`.sps`+`.txt`) files into human-readable CSVs.
+
+| Option | Description |
+|---|---|
+| **Save unlabeled** | If checked, also saves a copy of the file BEFORE metadata decoding (useful for debugging). |
+| **Country code** | The 3-letter code to filter rows (e.g., `MEX` for Mexico, `USA` for United States). |
+| **Load & Label Button** | Starts the loading process. Creates a `labeled/` subfolder with the decoded CSV. |
+
+##### Step 2: Clean
+Removes low-quality columns from labeled CSVs.
+
+| Option | Description |
+|---|---|
+| **Missing threshold (0-1)** | Drops columns with more than X% missing values. E.g., `0.9` drops if >90% values are NaN. |
+| **Uniform threshold (0-1)** | Drops columns where X% of values are identical. E.g., `0.95` drops if >95% are the same. |
+| **Correlation threshold (0-1)** | Drops one of two columns if their Pearson correlation exceeds X. E.g., `0.99`. Set to `1.0` to disable. |
+| **Clean Button** | Runs the cleaning logic. Creates a `cleaned/` subfolder. |
+
+##### Step 3: Transform
+Merges Student and School files and converts scores to PISA Proficiency Levels.
+
+| Option | Description |
+|---|---|
+| **Split dataset into 2 parts** | If checked, splits the final CSV into multiple parts based on column ranges. |
+| **Column ranges (e.g., 0:10, 20:30)** | Defines which columns go into each split. Uses Python slice notation. |
+| **Transform Button** | Runs the merging and leveling logic. Creates a `leveled/` subfolder with the final ML-ready CSV. |
+
+##### Run Full Pipeline
+Runs **Step 1 → Step 2 → Step 3** in sequence for all selected files. Useful for batch processing.
+
+#### 1.5. Log Panel (Bottom)
+- Displays real-time logs from all operations.
+- Color-coded: blue for pipeline info, red for errors.
+
+---
+
+### TAB 2: Process Results
+
+This tab is for **analyzing the output of feature selection algorithms** (e.g., from Weka or scikit-learn).
+
+#### 2.1. Top Toolbar
+| Button | What it does |
+|---|---|
+| **Select Results Directory** | Chooses the folder containing ranker/selector output files (e.g., `.arff`, `.txt`). |
+| **Select CSV File** | Chooses the original dataset CSV (the one used as input to the feature selection). |
+
+#### 2.2. Parameters Panel (Left Side)
+
+| Parameter | Description |
+|---|---|
+| **Result Names (comma-separated)** | Names of the datasets being analyzed (e.g., `2015_STU, 2015_STU2`). |
+| **Essentials (per dataset)** | Variables that are "essential" and should always be included (format: `dataset:col1,col2;dataset2:colA`). |
+| **Ranking Filters (comma-separated)** | The ranking algorithms to consider (e.g., `CORR, GAIN, RELIEFF`). These are parsed from filenames. |
+| **Selection Filters (comma-separated)** | The selection algorithms to consider (e.g., `subset, wrapper`). |
+| **Scoring Weights (comma-separated)** | How to weight each ranking filter in the final score calculation (e.g., `0.25, 0.30, 0.45`). |
+| **Number of Selected Attributes** | How many top features to select (e.g., `20` for Top 20). |
+
+#### 2.3. Actions Panel (Right Side)
+
+| Button | What it does |
+|---|---|
+| **Run Process Results** | Parses all files in the results directory, calculates a weighted average rank for each feature, and displays the top N. |
+| **Save Top Selection Results** | Saves two things: 1. A summary CSV of the top N features. 2. A filtered version of the original dataset containing ONLY those top N columns. |
+
+#### 2.4. Results Panel
+- Displays a text-based table of the top-ranked features after running "Process Results".
+- Shows the feature name, individual scores from each ranker, and the final weighted score.
+
+#### 2.5. Log Panel (Bottom)
+- Works identically to the Process Data log.
+- Displays progress and any errors from the Process Results operations.
 
 ---
 
@@ -149,19 +202,6 @@ MyData/
 │   └── leveled/
 │       └── CY07_MST_STU_QQQ.csv    (Final Output)
 ```
-
----
-
-## 🧩 Architecture
-
-This project uses a clean **Service-Oriented Architecture** with a strict separation between UI and Logic:
-
--   **PipelineService**: The brain. Handles all data processing logic (loading, cleaning, transforming).
--   **PipelineActions**: The bridge. Connects the GUI to the Service and manages background threads.
--   **Utils**: Shared logic for File Scanning and Thread-safe Logging.
--   **ThreadSafeConsole**: The reporter. Uses the Logger utility to show logs safely in the GUI.
-
-For a technical deep dive, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 

@@ -240,7 +240,7 @@ class ProcessResultsGUI:
 
     def _run_process_results_worker(self) -> None:
         try:
-            from pisa_pipeline.gui.thread_safe_console import ThreadSafeConsole
+            from pisa_pipeline.infrastructure.thread_safe_console import ThreadSafeConsole
             ThreadSafeConsole().redirect_sys_output()
             
             print("[Results] Starting processing in background thread...")
